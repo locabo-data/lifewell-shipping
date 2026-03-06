@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "lifewell-shippingtaskapp",
+    "production": "lifewell-shippingtaskapp",
+    "staging": "lifewell-shippingtaskapp-test"
+  }
+}
