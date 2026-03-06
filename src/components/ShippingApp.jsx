@@ -826,11 +826,37 @@ function ShippingApp() {
   };
 
   // ---------- テスト注文キャンセル ----------
-  const handleCancelOrder = async (order) => {
+  const handleCancelOrder = async (dialog) => {
+    const { order, doOrder, doPayment, doSubs } = dialog;
     setLoading('キャンセル処理中...');
     try {
       const api = ecforceApi || new EcforceAPI({ isDemo: true });
-      await api.cancelTestOrder(order.id, order.subs_order_id);
+      if (!api.isDemo) {
+        // ① 対応状況 → キャンセル
+        if (doOrder) {
+          await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
+            orders: [{ id: Number(order.id), state: 'canceled' }],
+          });
+        }
+        // ② 決済 → void
+        if (doPayment) {
+          try {
+            await api.proxyRequest('POST', '/api/v2/admin/orders/payment_status/bulk_update.json', {
+              method: 'void',
+              order_ids: [Number(order.id)],
+            });
+          } catch (e) {
+            console.warn('[handleCancelOrder] void failed (non-fatal):', e.message);
+          }
+        }
+        // ③ 定期受注 → キャンセル
+        if (doSubs && order.subs_order_id) {
+          await api.proxyRequest('PUT', '/api/v2/admin/subs_orders/bulk_update.json', {
+            check_duplicate_link_numbers: 0,
+            subs_orders: [{ id: Number(order.subs_order_id), state: 'canceled' }],
+          });
+        }
+      }
       showToast(`受注 ${order.number} をキャンセルしました`, 'success');
       setCancelConfirmDialog(null);
     } catch (err) {
@@ -2217,9 +2243,9 @@ function ShippingApp() {
           </div>
           <div className="flex items-center gap-2">
             {isTest ? (
-              <button onClick={() => setCancelConfirmDialog({ order })}
+              <button onClick={() => setCancelConfirmDialog({ order, doOrder: true, doPayment: true, doSubs: !!order.subs_order_id })}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
-                <Ban size={13} /> キャンセル
+                <Ban size={13} /> テスト受注キャンセル
               </button>
             ) : (
               <button onClick={() => setNameEditDialog({ order })}
@@ -2823,19 +2849,42 @@ function ShippingApp() {
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2.5 bg-red-100 rounded-lg text-red-600"><Ban size={20} /></div>
-              <h3 className="font-heading font-bold text-base text-cream-900">受注をキャンセルしますか？</h3>
+              <h3 className="font-heading font-bold text-base text-cream-900">テスト受注をキャンセルしますか？</h3>
             </div>
-            <p className="text-sm font-body text-cream-600 mb-2">
-              受注番号: <span className="font-mono text-accent">{cancelConfirmDialog.order.number}</span>
+            <p className="text-sm font-body text-cream-600 mb-3">
+              受注ID: <span className="font-mono text-accent">{cancelConfirmDialog.order.id}</span>
             </p>
-            <p className="text-xs font-body text-cream-500 mb-5">この操作はecforceに反映されます。</p>
+            <div className="bg-red-50 rounded-lg px-4 py-3 mb-5 space-y-2">
+              <p className="text-xs font-heading font-semibold text-red-700 mb-2">実行する操作を選択：</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={cancelConfirmDialog.doOrder}
+                  onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doOrder: !prev.doOrder }))}
+                  className="w-4 h-4 accent-red-600 rounded" />
+                <span className="text-xs font-body text-red-700">対応状況 → キャンセル</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={cancelConfirmDialog.doPayment}
+                  onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doPayment: !prev.doPayment }))}
+                  className="w-4 h-4 accent-red-600 rounded" />
+                <span className="text-xs font-body text-red-700">決済状況 → キャンセル（void処理）</span>
+              </label>
+              {cancelConfirmDialog.order.subs_order_id && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={cancelConfirmDialog.doSubs}
+                    onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doSubs: !prev.doSubs }))}
+                    className="w-4 h-4 accent-red-600 rounded" />
+                  <span className="text-xs font-body text-red-700">定期受注 → 解約</span>
+                </label>
+              )}
+            </div>
             <div className="flex gap-3">
               <button onClick={() => setCancelConfirmDialog(null)}
                 className="flex-1 py-2.5 bg-cream-100 hover:bg-cream-200 text-cream-700 text-sm rounded-lg font-body transition-colors">
                 戻る
               </button>
-              <button onClick={() => handleCancelOrder(cancelConfirmDialog.order)}
-                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg font-heading font-semibold transition-colors">
+              <button onClick={() => handleCancelOrder(cancelConfirmDialog)}
+                disabled={!cancelConfirmDialog.doOrder && !cancelConfirmDialog.doPayment && !cancelConfirmDialog.doSubs}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg font-heading font-semibold transition-colors">
                 キャンセル実行
               </button>
             </div>
