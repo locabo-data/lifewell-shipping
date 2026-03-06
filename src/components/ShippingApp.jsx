@@ -2917,9 +2917,21 @@ function ShippingApp() {
               <div className="p-2.5 bg-amber-100 rounded-lg text-amber-600"><Pause size={20} /></div>
               <h3 className="font-heading font-bold text-base text-cream-900">保留処理</h3>
             </div>
-            <p className="text-sm font-body text-cream-600 mb-3">
-              受注ID: <span className="font-mono text-accent">{holdDialog.order.id}</span>
-            </p>
+            <div className="mb-3 space-y-1">
+              <p className="text-sm font-body text-cream-600">
+                受注ID: <span className="font-mono text-accent">{holdDialog.order.id}</span>
+              </p>
+              {holdDialog.order.payment_human_state && (
+                <p className="text-xs font-body text-cream-500">
+                  決済状況: <span className="text-cream-700">{holdDialog.order.payment_human_state}</span>
+                </p>
+              )}
+              {(holdDialog.order.payment_last_error_message || holdDialog.order.payment_state) && (
+                <p className="text-xs font-body text-red-600 break-all">
+                  エラー内容: {holdDialog.order.payment_last_error_message || holdDialog.order.payment_state}
+                </p>
+              )}
+            </div>
             <div className="bg-amber-50 rounded-lg px-4 py-3 mb-4 space-y-2">
               <p className="text-xs font-heading font-semibold text-amber-700 mb-2">実行する操作を選択：</p>
               <label className="flex items-center gap-2 cursor-pointer">
