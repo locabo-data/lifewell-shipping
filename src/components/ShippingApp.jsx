@@ -2863,14 +2863,14 @@ function ShippingApp() {
                 <input type="checkbox" checked={cancelConfirmDialog.doPayment}
                   onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doPayment: !prev.doPayment }))}
                   className="w-4 h-4 accent-red-600 rounded" />
-                <span className="text-xs font-body text-red-700">決済状況 → キャンセル（void処理）</span>
+                <span className="text-xs font-body text-red-700">決済 → キャンセル（取消処理）</span>
               </label>
               {cancelConfirmDialog.order.subs_order_id && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={cancelConfirmDialog.doSubs}
                     onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doSubs: !prev.doSubs }))}
                     className="w-4 h-4 accent-red-600 rounded" />
-                  <span className="text-xs font-body text-red-700">定期受注 → 解約</span>
+                  <span className="text-xs font-body text-red-700">定期 → 解約</span>
                 </label>
               )}
             </div>
