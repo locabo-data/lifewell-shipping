@@ -1132,14 +1132,6 @@ function ShippingApp() {
             {/* Full-width shipping panels */}
             <div className="mt-5 animate-fadeIn space-y-4">
 
-              {/* 差分チェック中ローディング */}
-              {recheckLoading && (
-                <div className="bg-blue-50 rounded-xl border border-blue-200 px-5 py-4 flex items-center gap-3 shadow-sm">
-                  <RefreshCw size={16} className="text-blue-500 animate-spin shrink-0" />
-                  <span className="text-sm font-body text-blue-700">セッション開始時と受注ステータスを比較中...</span>
-                </div>
-              )}
-
               {/* 差分なし — 確認完了バナー */}
               {recheckDone && Object.keys(changedOrders).length === 0 && (
                 <div className="bg-green-50 rounded-xl border border-green-300 px-5 py-4 flex items-center gap-3 shadow-sm">
@@ -1909,7 +1901,8 @@ function ShippingApp() {
 
   // --- 重複注文タスク専用テーブル ---
   const renderDuplicateTable = (items) => {
-    // グループ化
+    const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
+    // グループ化（氏名 + 郵便番号 をキーに同一枠でまとめる）
     const groups = {};
     items.forEach((o) => {
       const key = `${o.shipping_address?.family_name}${o.shipping_address?.given_name}_${o.shipping_address?.zip}`;
@@ -1919,49 +1912,61 @@ function ShippingApp() {
 
     return (
       <div className="p-4 space-y-4">
-        {Object.entries(groups).map(([key, groupOrders]) => (
-          <div key={key} className="border border-red-200 rounded-lg overflow-hidden">
-            <div className="bg-red-50 px-4 py-2 flex items-center gap-2">
-              <AlertTriangle size={14} className="text-red-500" />
-              <span className="text-sm font-heading font-semibold text-red-700">
-                重複グループ: {groupOrders[0]?.shipping_address?.family_name} {groupOrders[0]?.shipping_address?.given_name}
-                ({groupOrders.length}件)
-              </span>
+        {Object.entries(groups).map(([key, groupOrders]) => {
+          const firstAddr = groupOrders[0]?.shipping_address || {};
+          return (
+            <div key={key} className="border border-red-200 rounded-lg overflow-hidden">
+              <div className="bg-red-50 px-4 py-2 flex items-center gap-2">
+                <AlertTriangle size={14} className="text-red-500" />
+                <span className="text-sm font-heading font-semibold text-red-700">
+                  重複グループ: {firstAddr.family_name} {firstAddr.given_name}
+                  {firstAddr.zip && <span className="ml-2 font-normal text-red-500 text-xs">〒{firstAddr.zip}</span>}
+                  <span className="ml-2">（{groupOrders.length}件）</span>
+                </span>
+              </div>
+              <table className="w-full">
+                <thead><tr className="bg-cream-50 text-left">
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500 w-8"></th>
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500">受注ID</th>
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500">住所</th>
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500">決済</th>
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500">商品</th>
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500"></th>
+                </tr></thead>
+                <tbody>
+                  {groupOrders.map((o) => {
+                    const os = orderStatuses[o.id] || {};
+                    const adminUrl = ecBase ? `${ecBase}/admin/orders/${o.id}` : '#';
+                    return (
+                      <tr key={o.id} className={`border-t border-cream-100 ${os.checked ? 'bg-green-50/40' : ''}`}>
+                        <td className="px-3 py-2">
+                          <button onClick={() => toggleOrderChecked(o.id)} className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
+                            {os.checked && <Check size={12} />}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2">
+                          <a href={adminUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-sm font-mono text-accent hover:underline flex items-center gap-1">
+                            {o.id}<ExternalLink size={11} className="opacity-60" />
+                          </a>
+                        </td>
+                        <td className="px-3 py-2 text-sm font-body text-cream-600">{o.shipping_address?.prefecture}{o.shipping_address?.city}{o.shipping_address?.street}</td>
+                        <td className="px-3 py-2 text-sm font-body text-cream-600">{o.payment_method_name}</td>
+                        <td className="px-3 py-2 text-xs font-body text-cream-600">{o.line_items?.map((i) => i.name).join(', ')}</td>
+                        <td className="px-3 py-2">
+                          <a href={adminUrl} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2 py-1 text-xs bg-cream-100 hover:bg-cream-200 text-cream-700 rounded transition-colors font-body whitespace-nowrap">
+                            <ExternalLink size={11} /> 管理画面
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            <table className="w-full">
-              <thead><tr className="bg-cream-50 text-left">
-                <th className="px-3 py-2 text-xs font-heading text-cream-500 w-8"></th>
-                <th className="px-3 py-2 text-xs font-heading text-cream-500">受注番号</th>
-                <th className="px-3 py-2 text-xs font-heading text-cream-500">住所</th>
-                <th className="px-3 py-2 text-xs font-heading text-cream-500">決済</th>
-                <th className="px-3 py-2 text-xs font-heading text-cream-500">商品</th>
-                <th className="px-3 py-2 text-xs font-heading text-cream-500">メモ</th>
-              </tr></thead>
-              <tbody>
-                {groupOrders.map((o) => {
-                  const os = orderStatuses[o.id] || {};
-                  return (
-                    <tr key={o.id} className={`border-t border-cream-100 ${os.checked ? 'bg-green-50/40' : ''}`}>
-                      <td className="px-3 py-2">
-                        <button onClick={() => toggleOrderChecked(o.id)} className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
-                          {os.checked && <Check size={12} />}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-sm font-mono text-accent">{o.number}</td>
-                      <td className="px-3 py-2 text-sm font-body text-cream-600">{o.shipping_address?.prefecture}{o.shipping_address?.city}{o.shipping_address?.street}</td>
-                      <td className="px-3 py-2 text-sm font-body text-cream-600">{o.payment_method_name}</td>
-                      <td className="px-3 py-2 text-xs font-body text-cream-600">{o.line_items?.map((i) => i.name).join(', ')}</td>
-                      <td className="px-3 py-2">
-                        <input type="text" value={os.memo || ''} onChange={(e) => setOrderStatus(o.id, 'memo', e.target.value)}
-                          placeholder="メモ" className="w-full px-2 py-1 text-xs border border-cream-200 rounded font-body text-cream-700 focus:outline-none focus:ring-1 focus:ring-accent/30" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -2795,6 +2800,19 @@ function ShippingApp() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 差分チェック中モーダル（操作ブロック） */}
+      {recheckLoading && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl px-10 py-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4">
+            <div className="w-12 h-12 border-4 border-cream-200 border-t-accent rounded-full animate-spin" />
+            <div className="text-center">
+              <p className="font-heading font-bold text-cream-900 text-base">ステータス確認中</p>
+              <p className="text-sm font-body text-cream-500 mt-1">セッション開始時と受注ステータスを比較中...</p>
+            </div>
           </div>
         </div>
       )}
