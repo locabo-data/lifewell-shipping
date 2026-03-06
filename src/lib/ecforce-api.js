@@ -832,18 +832,22 @@ export const TaskProcessors = {
   /** タスク4: 過去出荷分確認 — APIで別途取得するためセッション受注は使わない */
   pendingShipment: (_orders) => [],
 
-  /** タスク5: テスト注文・氏名不備 — judgePersonName で異常検出 */
+  /** タスク5: テスト注文・氏名不備 — judgePersonName で異常検出 + O-PLUX振り仮名誤りも含む */
   nameAnomaly: (orders) =>
     orders.filter((o) => {
       if (!o.is_first_order) return false; // 新規受注のみチェック
       const addr = o.shipping_address;
       if (!addr) return false;
+      // ① judgePersonName で氏名異常検出
       const result = judgePersonName({
         name01: addr.family_name,
         name02: addr.given_name,
         full_name: addr.full_name,
       });
-      return result.abnormal;
+      if (result.abnormal) return true;
+      // ② O-PLUX審査詳細にフリガナ関連キーワードが含まれる場合も対象
+      const desc = String(o.o_plux_description || '');
+      return /振り仮名|フリガナ|ふりがな|カナ不一致|カナ相違|kana/i.test(desc);
     }),
 
   /** タスク6: 購入URL確認 — URL に "defo" or "test" を含む初回受注(times=1) */
@@ -856,12 +860,15 @@ export const TaskProcessors = {
       return false;
     }),
 
-  /** タスク7: O-PLUX審査確認 — o_plux_result が REVIEW / OK の初回受注(times=1) */
+  /** タスク7: O-PLUX審査確認 — o_plux_result が REVIEW / OK（OK は理由ありのみ）の初回受注(times=1) */
   oplux: (orders) =>
     orders.filter((o) => {
       if (Number(o.times) !== 1) return false;
       const result = String(o.o_plux_result || '').toUpperCase();
-      return result === 'REVIEW' || result === 'OK';
+      if (result === 'REVIEW') return true;
+      // OK かつ審査詳細（o_plux_description）がある場合のみ表示
+      if (result === 'OK') return !!(o.o_plux_description);
+      return false;
     }),
 
   /** タスク8: 重複注文確認 — 同一氏名 or 同一住所 の受注グループ */

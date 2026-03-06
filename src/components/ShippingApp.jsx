@@ -59,8 +59,8 @@ const TASK_LIST = [
   { id: 'duplicate', label: '重複注文確認', desc: '同一氏名/住所の重複', icon: Copy, processor: 'duplicate' },
   { id: 'singleItem', label: '単品注文確認', desc: '対象商品コード含む受注', icon: ShoppingBag, processor: 'singleItem' },
   { id: 'purchaseUrl', label: '購入URL確認', desc: 'defo/test URL (初回)', icon: Link, processor: 'purchaseUrl' },
-  { id: 'oplux', label: 'O-PLUX審査確認', desc: 'REVIEW / OK判定 (初回)', icon: Shield, processor: 'oplux' },
   { id: 'addressCorrection', label: '住所校正', desc: 'AI住所校正（新規注文のみ）', icon: MapPin, processor: 'addressCorrection' },
+  { id: 'oplux', label: 'O-PLUX審査確認', desc: 'REVIEW / OK判定 (初回)', icon: Shield, processor: 'oplux' },
 ];
 
 // 日本の国民の祝日 (2025-2026)
@@ -681,7 +681,7 @@ function ShippingApp() {
         const freshMap = {};
         freshOrders.forEach((o) => { freshMap[o.id] = o; });
 
-        // スナップショットと比較（state / payment_state / tbc）
+        // スナップショットと比較（state / payment_state / tbc / human_state）
         const changed = {};
         Object.entries(sessionSnapshot).forEach(([id, before]) => {
           const numId = Number(id);
@@ -697,6 +697,7 @@ function ShippingApp() {
               after: { state: '(取得不可)', human_state: '(取得不可)', payment_state: '(取得不可)', tbc: before.tbc },
               order: orderRef,
               disappeared: true,
+              shippingRelevant: true,
             };
             return;
           }
@@ -704,31 +705,41 @@ function ShippingApp() {
           const stateChanged = String(after.state ?? '') !== String(before.state ?? '');
           const paymentChanged = String(after.payment_state ?? '') !== String(before.payment_state ?? '');
           const tbcChanged = !!after.tbc !== !!before.tbc;
-          if (stateChanged || paymentChanged || tbcChanged) {
+          const humanStateChanged = String(after.human_state ?? '') !== String(before.human_state ?? '');
+          // shippingRelevant = 出荷に関わるステータス変更（state / payment_state / tbc）
+          const shippingRelevant = stateChanged || paymentChanged || tbcChanged;
+          if (shippingRelevant || humanStateChanged) {
             changed[numId] = {
               before,
               after: { state: after.state, human_state: after.human_state, payment_state: after.payment_state, tbc: !!after.tbc },
               order: orderRef,
+              shippingRelevant,
             };
           }
         });
 
         setChangedOrders(changed);
 
+        // 出荷選択から除外するのは shippingRelevant な変更のみ
+        const shippingChangedIds = Object.entries(changed)
+          .filter(([, info]) => info.shippingRelevant)
+          .map(([id]) => Number(id));
         const changedIds = Object.keys(changed).map(Number);
         if (changedIds.length > 0) {
-          // 変更のある受注を出荷選択から除外
-          setSelectedShipIds((prev) => {
-            const next = new Set(prev);
-            changedIds.forEach((id) => next.delete(id));
-            return next;
-          });
-          setIrregSelectedShipIds((prev) => {
-            const next = { ...prev };
-            changedIds.forEach((id) => delete next[id]);
-            return next;
-          });
-          showToast(`${changedIds.length}件の受注でステータス変更を検出しました`, 'warning');
+          // 出荷に関わるステータス変更があった受注を出荷選択から除外
+          if (shippingChangedIds.length > 0) {
+            setSelectedShipIds((prev) => {
+              const next = new Set(prev);
+              shippingChangedIds.forEach((id) => next.delete(id));
+              return next;
+            });
+            setIrregSelectedShipIds((prev) => {
+              const next = { ...prev };
+              shippingChangedIds.forEach((id) => delete next[id]);
+              return next;
+            });
+          }
+          showToast(`${changedIds.length}件の受注で変更を検出しました`, 'warning');
         } else {
           showToast('受注ステータスに変更なし ✓', 'success');
         }
@@ -1147,10 +1158,10 @@ function ShippingApp() {
                     <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-heading font-bold text-amber-800">
-                        タスク作業中にステータス変更が検出されました（{Object.keys(changedOrders).length}件）
+                        タスク作業中に変更が検出されました（{Object.keys(changedOrders).length}件）
                       </p>
                       <p className="text-xs font-body text-amber-700 mt-1">
-                        以下の受注は出荷選択から除外されています。内容を確認して出荷対象に含めるか判断してください。
+                        以下の受注で変更が検出されました。出荷ステータス変更のある受注は出荷選択から除外されています。内容を確認してください。
                       </p>
                       <div className="mt-3 space-y-2">
                         {Object.entries(changedOrders).map(([id, info]) => {
@@ -1159,10 +1170,13 @@ function ShippingApp() {
                             ? `${order.shipping_address?.family_name || ''} ${order.shipping_address?.given_name || ''}`.trim()
                             : '';
                           return (
-                            <div key={id} className="bg-white rounded-lg border border-amber-200 px-3 py-2.5 text-xs font-body">
+                            <div key={id} className={`bg-white rounded-lg border px-3 py-2.5 text-xs font-body ${info.shippingRelevant === false ? 'border-blue-200' : 'border-amber-200'}`}>
                               <div className="flex items-center gap-3 flex-wrap">
                                 <span className="font-mono font-bold text-accent">受注ID: {id}</span>
                                 {name && <span className="text-cream-600">{name}</span>}
+                                {info.shippingRelevant === false && (
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 text-[10px] font-heading font-semibold">対応状況のみ</span>
+                                )}
                               </div>
                               <div className="mt-1.5 flex flex-wrap gap-4">
                                 {info.disappeared ? (
@@ -1171,7 +1185,12 @@ function ShippingApp() {
                                   <>
                                     {String(info.before.state ?? '') !== String(info.after.state ?? '') && (
                                       <span className="text-amber-700">
-                                        対応状況: <span className="line-through text-cream-400 mr-1">{info.before.human_state ?? info.before.state}</span>→<span className="font-semibold ml-1">{info.after.human_state ?? info.after.state}</span>
+                                        受注状態: <span className="line-through text-cream-400 mr-1">{info.before.state}</span>→<span className="font-semibold ml-1">{info.after.state}</span>
+                                      </span>
+                                    )}
+                                    {String(info.before.human_state ?? '') !== String(info.after.human_state ?? '') && (
+                                      <span className={info.shippingRelevant === false ? 'text-blue-700' : 'text-amber-700'}>
+                                        対応状況: <span className="line-through text-cream-400 mr-1">{info.before.human_state || '-'}</span>→<span className="font-semibold ml-1">{info.after.human_state || '-'}</span>
                                       </span>
                                     )}
                                     {String(info.before.payment_state ?? '') !== String(info.after.payment_state ?? '') && (
@@ -1200,7 +1219,12 @@ function ShippingApp() {
               {(() => {
                 const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
                 const allIds = orders.map((o) => o.id);
-                const changedIds = new Set(Object.keys(changedOrders).map(Number));
+                // shippingRelevant な変更のみ amber section に表示（human_state のみ変更は除外）
+                const changedIds = new Set(
+                  Object.entries(changedOrders)
+                    .filter(([, info]) => info.shippingRelevant !== false)
+                    .map(([id]) => Number(id))
+                );
                 const allSelected = allIds.length > 0 && allIds.every((id) => selectedShipIds.has(id));
                 const toggleAll = () => setSelectedShipIds(allSelected ? new Set() : new Set(allIds));
                 const toggleOne = (id) => setSelectedShipIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1346,7 +1370,12 @@ function ShippingApp() {
                 const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
                 const warehouseLabel = warehouseId === 'tsukamoto' ? '塚本郵便逓送 (COOOLa)' : 'FJロジ (コマロボ)';
                 const stateLabel = warehouseId === 'tsukamoto' ? 'cooolawait' : 'wmswait';
-                const changedIds = new Set(Object.keys(changedOrders).map(Number));
+                // shippingRelevant な変更のみ amber section に表示（human_state のみ変更は除外）
+                const changedIds = new Set(
+                  Object.entries(changedOrders)
+                    .filter(([, info]) => info.shippingRelevant !== false)
+                    .map(([id]) => Number(id))
+                );
                 const allIds = groupOrders.map((o) => o.id);
                 const allSelected = allIds.length > 0 && allIds.every((id) => irregSelectedShipIds[id]);
                 const toggleAll = () => setIrregSelectedShipIds((prev) => {
@@ -1679,6 +1708,7 @@ function ShippingApp() {
               : task.id === 'singleItem' ? renderSingleItemTable(items)
               : task.id === 'oplux' ? renderOpluxTable(items)
               : task.id === 'npPayment' ? renderNpBessoTable(items)
+              : task.id === 'paymentError' ? renderPaymentErrorTable(items)
               : renderGenericTable(items, task.id)
             }
           </div>
@@ -1937,6 +1967,74 @@ function ShippingApp() {
   };
 
   // --- 汎用テーブル（個別チェック・メモ・ステータス付き） ---
+  // --- 決済エラー確認専用テーブル ---
+  const renderPaymentErrorTable = (items) => {
+    const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-cream-50 text-left">
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500 w-8"></th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">受注ID</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">氏名</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">値段</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">決済状況</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">エラー内容</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">判定</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">メモ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((order) => {
+              const os = orderStatuses[order.id] || {};
+              const addr = order.shipping_address || {};
+              const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
+              const amount = order.total ?? order.charge ?? order.subtotal ?? null;
+              return (
+                <tr key={order.id} className={`border-t border-cream-100 transition-colors ${os.checked ? 'bg-green-50/40' : 'hover:bg-cream-50/50'}`}>
+                  <td className="px-3 py-3">
+                    <button onClick={() => toggleOrderChecked(order.id)}
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
+                      {os.checked && <Check size={12} />}
+                    </button>
+                  </td>
+                  <td className="px-3 py-3">
+                    <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-mono text-accent hover:underline flex items-center gap-1">
+                      {order.id}<ExternalLink size={11} className="opacity-60" />
+                    </a>
+                  </td>
+                  <td className="px-3 py-3 text-sm font-body text-cream-800">{addr.family_name} {addr.given_name}</td>
+                  <td className="px-3 py-3 text-sm font-mono text-cream-700">
+                    {amount != null ? `¥${Number(amount).toLocaleString()}` : '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm font-body text-cream-600">{order.payment_method_name || '-'}</td>
+                  <td className="px-3 py-3">
+                    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-mono bg-red-100 text-red-700">
+                      {order.payment_state || '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <select value={os.status || 'pending'} onChange={(e) => setOrderStatus(order.id, 'status', e.target.value)}
+                      className="text-xs border border-cream-200 rounded px-1.5 py-1 font-body text-cream-700 bg-white focus:outline-none focus:ring-1 focus:ring-accent/30">
+                      <option value="pending">未確認</option>
+                      <option value="ok">問題なし</option>
+                      <option value="issue">要対応</option>
+                    </select>
+                  </td>
+                  <td className="px-3 py-3">
+                    <input type="text" value={os.memo || ''} onChange={(e) => setOrderStatus(order.id, 'memo', e.target.value)}
+                      placeholder="メモ" className="w-full px-2 py-1 text-xs border border-cream-200 rounded font-body text-cream-700 focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   const renderGenericTable = (items, taskId) => (
     <div className="overflow-x-auto">
       <table className="w-full">
@@ -2001,10 +2099,15 @@ function ShippingApp() {
     const pendingItems = items.filter((o) => !nameEditedIds.has(o.id));
     const processedItems = items.filter((o) => nameEditedIds.has(o.id));
 
+    // O-PLUX振り仮名誤り判定（同じ正規表現を使用）
+    const isOpluxKanaError = (order) => /振り仮名|フリガナ|ふりがな|カナ不一致|カナ相違|kana/i.test(String(order.o_plux_description || ''));
+
     const renderCard = (order, isProcessed = false) => {
       const addr = order.shipping_address || {};
       const result = judgePersonName({ name01: addr.family_name, name02: addr.given_name, full_name: addr.full_name });
       const isTest = result.reasons.some((r) => r.includes('テスト') || r.includes('記号') || r.includes('数字のみ') || r.includes('絵文字'));
+      // judgePersonName では異常なし → O-PLUX振り仮名誤りのケース
+      const isKanaError = !result.abnormal && isOpluxKanaError(order);
       const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
 
       if (isProcessed) {
@@ -2022,6 +2125,52 @@ function ShippingApp() {
               <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-cream-300 hover:text-accent transition-colors shrink-0">
                 <ExternalLink size={15} />
               </a>
+            </div>
+          </div>
+        );
+      }
+
+      // O-PLUX振り仮名誤りカード
+      if (isKanaError) {
+        return (
+          <div key={order.id} className="rounded-xl border-2 border-purple-200 bg-purple-50/30 p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2 py-0.5 rounded-full text-xs font-heading font-bold bg-purple-100 text-purple-700">
+                  O-PLUX振り仮名
+                </span>
+                <span className="font-mono text-sm text-accent font-semibold">受注ID: {order.id}</span>
+              </div>
+              <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-cream-300 hover:text-accent transition-colors shrink-0">
+                <ExternalLink size={15} />
+              </a>
+            </div>
+            <div className="mb-3 space-y-1 text-sm font-body">
+              <p className="text-cream-800">
+                <span className="font-semibold">{addr.family_name} {addr.given_name}</span>
+                {(addr.kana01 || addr.kana02) && (
+                  <span className="ml-2 text-cream-500">（{addr.kana01} {addr.kana02}）</span>
+                )}
+              </p>
+              <div className="flex gap-4 text-xs font-body text-cream-500">
+                {(order.charge || order.total) != null && (
+                  <span>金額: ¥{(order.charge || order.total || 0).toLocaleString()}</span>
+                )}
+                {order.completed_at && (
+                  <span>受注日: {new Date(order.completed_at).toLocaleString('ja-JP')}</span>
+                )}
+              </div>
+              {order.o_plux_description && (
+                <p className="text-xs font-body text-purple-700 bg-purple-100 rounded px-2 py-1 mt-1 break-all">
+                  O-PLUX詳細: {order.o_plux_description}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setNameEditDialog({ order })}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                <Edit3 size={13} /> 振り仮名を修正
+              </button>
             </div>
           </div>
         );
