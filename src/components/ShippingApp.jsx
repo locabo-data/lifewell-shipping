@@ -2037,64 +2037,58 @@ function ShippingApp() {
     );
   };
 
-  // --- 決済エラー確認専用テーブル ---
+  // --- 決済エラー確認専用カード ---
   const renderPaymentErrorTable = (items) => {
     const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-cream-50 text-left">
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500 w-8"></th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">受注ID</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">氏名</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">値段</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">支払い方法</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">決済状況</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">エラー内容</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((order) => {
-              const os = orderStatuses[order.id] || {};
-              const addr = order.shipping_address || {};
-              const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
-              const amount = order.total ?? order.charge ?? order.subtotal ?? null;
-              return (
-                <tr key={order.id} className={`border-t border-cream-100 transition-colors ${os.checked ? 'bg-green-50/40' : 'hover:bg-cream-50/50'}`}>
-                  <td className="px-3 py-2">
-                    <button onClick={() => toggleOrderChecked(order.id)}
-                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
-                      {os.checked && <Check size={12} />}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2">
-                    <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-mono text-accent hover:underline flex items-center gap-1">
-                      {order.id}<ExternalLink size={11} className="opacity-60" />
-                    </a>
-                  </td>
-                  <td className="px-3 py-2 text-sm font-body text-cream-800">{addr.family_name} {addr.given_name}</td>
-                  <td className="px-3 py-2 text-sm font-mono text-cream-700">
-                    {amount != null ? `¥${Number(amount).toLocaleString()}` : '-'}
-                  </td>
-                  <td className="px-3 py-2 text-sm font-body text-cream-600">{order.payment_method_name || '-'}</td>
-                  <td className="px-3 py-2 text-sm font-body text-cream-600">{order.payment_human_state || '-'}</td>
-                  <td className="px-3 py-2 text-xs font-mono text-red-700 max-w-[220px] break-words">
-                    {order.payment_last_error_message || order.payment_state || '-'}
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      onClick={() => setHoldDialog({ order, doHold: true, doSuspendSubs: !!order.subs_order_id, mailTemplateId: '' })}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors whitespace-nowrap">
-                      <Pause size={12} /> 保留処理
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="p-4 space-y-3">
+        {items.map((order) => {
+          const os = orderStatuses[order.id] || {};
+          const addr = order.shipping_address || {};
+          const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
+          const amount = order.total ?? order.charge ?? order.subtotal ?? null;
+          const errorMsg = order.payment_last_error_message || order.payment_state || null;
+          return (
+            <div key={order.id} className={`rounded-xl border-2 p-4 transition-colors ${os.checked ? 'border-green-200 bg-green-50/40' : 'border-red-200 bg-white'}`}>
+              {/* ヘッダー: チェック + 受注ID + 氏名 + 管理画面リンク */}
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={() => toggleOrderChecked(order.id)}
+                    className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
+                    {os.checked && <Check size={12} />}
+                  </button>
+                  <span className="font-mono text-sm text-accent font-semibold">受注ID: {order.id}</span>
+                  <span className="text-sm font-body text-cream-800 font-semibold">{addr.family_name} {addr.given_name}</span>
+                </div>
+                <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-cream-300 hover:text-accent transition-colors shrink-0">
+                  <ExternalLink size={15} />
+                </a>
+              </div>
+              {/* 金額・支払い方法・決済状況 */}
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 mb-2 text-xs font-body text-cream-500">
+                {amount != null && <span>¥{Number(amount).toLocaleString()}</span>}
+                {order.payment_method_name && <span>{order.payment_method_name}</span>}
+                {order.payment_human_state && (
+                  <span className="text-amber-700 font-semibold">{order.payment_human_state}</span>
+                )}
+              </div>
+              {/* エラー内容 */}
+              {errorMsg && (
+                <p className="text-xs font-mono text-red-700 bg-red-50 rounded px-2 py-1.5 mb-3 break-all">
+                  {errorMsg}
+                </p>
+              )}
+              {/* 保留処理ボタン */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHoldDialog({ order, doHold: true, doSuspendSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                  <Pause size={13} /> 保留処理
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
