@@ -2136,7 +2136,7 @@ function ShippingApp() {
     const renderCard = (order, isProcessed = false) => {
       const addr = order.shipping_address || {};
       const result = judgePersonName({ name01: addr.family_name, name02: addr.given_name, full_name: addr.full_name });
-      const isTest = result.reasons.some((r) => r.includes('テスト') || r.includes('記号') || r.includes('数字のみ') || r.includes('絵文字'));
+      const isTest = result.reasons.some((r) => r.includes('TEST_WORD') || r.includes('ONLY_DIGITS') || r.includes('ONLY_SYMBOLS') || r.includes('EMOJI'));
       // judgePersonName では異常なし → O-PLUX振り仮名誤りのケース
       const isKanaError = !result.abnormal && isOpluxKanaError(order);
       const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
@@ -2242,17 +2242,14 @@ function ShippingApp() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isTest ? (
-              <button onClick={() => setCancelConfirmDialog({ order, doOrder: true, doPayment: true, doSubs: !!order.subs_order_id })}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
-                <Ban size={13} /> テスト受注キャンセル
-              </button>
-            ) : (
-              <button onClick={() => setNameEditDialog({ order })}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
-                <Edit3 size={13} /> 修正
-              </button>
-            )}
+            <button onClick={() => setNameEditDialog({ order })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+              <Edit3 size={13} /> 修正
+            </button>
+            <button onClick={() => setCancelConfirmDialog({ order, doOrder: true, doPayment: true, doSubs: !!order.subs_order_id })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+              <Ban size={13} /> テスト受注キャンセル
+            </button>
           </div>
         </div>
       );
