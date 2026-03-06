@@ -147,6 +147,16 @@ export async function setApiConfig(config) {
   await setAppSettings('api_config', config);
 }
 
+// --- 保留メールテンプレート ---
+export async function getHoldMailTemplates() {
+  const settings = await getAppSettings('hold_mail_templates');
+  return settings?.templates || [];
+}
+
+export async function setHoldMailTemplates(templates) {
+  await setAppSettings('hold_mail_templates', { templates });
+}
+
 // --- Invited Users（事前登録ユーザー） ---
 export async function getInvitedUsers() {
   if (!isFirebaseConfigured) return [];

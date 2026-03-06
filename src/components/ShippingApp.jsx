@@ -14,6 +14,7 @@ import {
   getHolidays, setHolidays, getOpluxKeywords, setOpluxKeywords,
   getIrregularCodes, setIrregularCodes, getApiConfig, setApiConfig,
   getAppSettings, setAppSettings,
+  getHoldMailTemplates, setHoldMailTemplates,
 } from '../lib/firestore-helpers';
 import {
   EcforceAPI, AddressCorrectionService, TaskProcessors,
@@ -257,6 +258,8 @@ function ShippingApp() {
   const [pendingMovedIds, setPendingMovedIds] = useState(new Set()); // 出荷リストに追加済みの受注ID
   const [nameEditDialog, setNameEditDialog] = useState(null); // { order }
   const [cancelConfirmDialog, setCancelConfirmDialog] = useState(null); // { order }
+  const [holdDialog, setHoldDialog] = useState(null); // { order, doHold, doSuspendSubs, mailTemplateId }
+  const [holdMailTemplates, setHoldMailTemplatesState] = useState([]); // [{ id: string, label: string }]
   const [selectedShipIds, setSelectedShipIds] = useState(new Set());
   const [irregSelectedShipIds, setIrregSelectedShipIds] = useState({});
   // shippingRegistered: { [groupKey]: boolean }
@@ -283,15 +286,17 @@ function ShippingApp() {
     if (!user) return;
     async function loadSettings() {
       try {
-        const [h, kw, codes, config, whOverrides] = await Promise.all([
+        const [h, kw, codes, config, whOverrides, holdTpls] = await Promise.all([
           getHolidays(), getOpluxKeywords(), getIrregularCodes(), getApiConfig(),
           getAppSettings('warehouse_overrides'),
+          getHoldMailTemplates(),
         ]);
         setHolidaysState(h);
         setOpluxKeywordsState(kw);
         setIrregularCodesState(codes);
         setApiConfigState(config);
         setWarehouseOverrides(whOverrides?.overrides || {});
+        setHoldMailTemplatesState(holdTpls);
         const demo = !(config?.ecforceBaseUrl && config?.ecforceToken);
         setIsDemo(demo);
         setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
@@ -861,6 +866,41 @@ function ShippingApp() {
       setCancelConfirmDialog(null);
     } catch (err) {
       showToast(`キャンセルエラー: ${err.message}`, 'error');
+    }
+    setLoading(false);
+  };
+
+  // ---------- 決済エラー保留処理 ----------
+  const handleHoldOrder = async (dialog) => {
+    const { order, doHold, doSuspendSubs, mailTemplateId } = dialog;
+    setLoading('保留処理中...');
+    try {
+      const api = ecforceApi || new EcforceAPI({ isDemo: true });
+      if (!api.isDemo) {
+        // ① 受注 → 保留（horyuu）
+        if (doHold) {
+          await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
+            orders: [{ id: Number(order.id), state: 'horyuu' }],
+          });
+        }
+        // ② 定期受注 → 停止（suspend）
+        if (doSuspendSubs && order.subs_order_id) {
+          await api.proxyRequest('PUT', '/api/v2/admin/subs_orders/bulk_update.json', {
+            check_duplicate_link_numbers: 0,
+            subs_orders: [{ id: Number(order.subs_order_id), state: 'suspend' }],
+          });
+        }
+        // ③ 受注メール送信
+        if (mailTemplateId) {
+          await api.proxyRequest('POST', `/api/v2/admin/orders/${order.id}/emails.json`, {
+            email_template_id: Number(mailTemplateId),
+          });
+        }
+      }
+      showToast(`受注 ${order.number} を保留処理しました`, 'success');
+      setHoldDialog(null);
+    } catch (err) {
+      showToast(`保留処理エラー: ${err.message}`, 'error');
     }
     setLoading(false);
   };
@@ -1997,7 +2037,6 @@ function ShippingApp() {
     );
   };
 
-  // --- 汎用テーブル（個別チェック・メモ・ステータス付き） ---
   // --- 決済エラー確認専用テーブル ---
   const renderPaymentErrorTable = (items) => {
     const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
@@ -2010,10 +2049,10 @@ function ShippingApp() {
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">受注ID</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">氏名</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">値段</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">支払い方法</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">決済状況</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">エラー内容</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">判定</th>
-              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">メモ</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500"></th>
             </tr>
           </thead>
           <tbody>
@@ -2024,38 +2063,32 @@ function ShippingApp() {
               const amount = order.total ?? order.charge ?? order.subtotal ?? null;
               return (
                 <tr key={order.id} className={`border-t border-cream-100 transition-colors ${os.checked ? 'bg-green-50/40' : 'hover:bg-cream-50/50'}`}>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-2">
                     <button onClick={() => toggleOrderChecked(order.id)}
                       className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
                       {os.checked && <Check size={12} />}
                     </button>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-2">
                     <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-mono text-accent hover:underline flex items-center gap-1">
                       {order.id}<ExternalLink size={11} className="opacity-60" />
                     </a>
                   </td>
-                  <td className="px-3 py-3 text-sm font-body text-cream-800">{addr.family_name} {addr.given_name}</td>
-                  <td className="px-3 py-3 text-sm font-mono text-cream-700">
+                  <td className="px-3 py-2 text-sm font-body text-cream-800">{addr.family_name} {addr.given_name}</td>
+                  <td className="px-3 py-2 text-sm font-mono text-cream-700">
                     {amount != null ? `¥${Number(amount).toLocaleString()}` : '-'}
                   </td>
-                  <td className="px-3 py-3 text-sm font-body text-cream-600">{order.payment_method_name || '-'}</td>
-                  <td className="px-3 py-3">
-                    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-mono bg-red-100 text-red-700">
-                      {order.payment_state || '-'}
-                    </span>
+                  <td className="px-3 py-2 text-sm font-body text-cream-600">{order.payment_method_name || '-'}</td>
+                  <td className="px-3 py-2 text-sm font-body text-cream-600">{order.payment_human_state || '-'}</td>
+                  <td className="px-3 py-2 text-xs font-mono text-red-700 max-w-[220px] break-words">
+                    {order.payment_last_error_message || order.payment_state || '-'}
                   </td>
-                  <td className="px-3 py-3">
-                    <select value={os.status || 'pending'} onChange={(e) => setOrderStatus(order.id, 'status', e.target.value)}
-                      className="text-xs border border-cream-200 rounded px-1.5 py-1 font-body text-cream-700 bg-white focus:outline-none focus:ring-1 focus:ring-accent/30">
-                      <option value="pending">未確認</option>
-                      <option value="ok">問題なし</option>
-                      <option value="issue">要対応</option>
-                    </select>
-                  </td>
-                  <td className="px-3 py-3">
-                    <input type="text" value={os.memo || ''} onChange={(e) => setOrderStatus(order.id, 'memo', e.target.value)}
-                      placeholder="メモ" className="w-full px-2 py-1 text-xs border border-cream-200 rounded font-body text-cream-700 focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setHoldDialog({ order, doHold: true, doSuspendSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors whitespace-nowrap">
+                      <Pause size={12} /> 保留処理
+                    </button>
                   </td>
                 </tr>
               );
@@ -2723,6 +2756,7 @@ function ShippingApp() {
     setIsDemo={setIsDemo} showToast={showToast}
     ecforceApi={ecforceApi} setEcforceApi={setEcforceApi}
     setAddressService={setAddressService}
+    holdMailTemplates={holdMailTemplates} setHoldMailTemplatesState={setHoldMailTemplatesState}
   />;
 
   // ======================== Session Modal ========================
@@ -2875,6 +2909,62 @@ function ShippingApp() {
         </div>
       )}
 
+      {/* 保留処理ダイアログ */}
+      {holdDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-amber-100 rounded-lg text-amber-600"><Pause size={20} /></div>
+              <h3 className="font-heading font-bold text-base text-cream-900">保留処理</h3>
+            </div>
+            <p className="text-sm font-body text-cream-600 mb-3">
+              受注ID: <span className="font-mono text-accent">{holdDialog.order.id}</span>
+            </p>
+            <div className="bg-amber-50 rounded-lg px-4 py-3 mb-4 space-y-2">
+              <p className="text-xs font-heading font-semibold text-amber-700 mb-2">実行する操作を選択：</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={holdDialog.doHold}
+                  onChange={() => setHoldDialog(prev => ({ ...prev, doHold: !prev.doHold }))}
+                  className="w-4 h-4 accent-amber-600 rounded" />
+                <span className="text-xs font-body text-amber-700">受注保留にする</span>
+              </label>
+              {holdDialog.order.subs_order_id && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={holdDialog.doSuspendSubs}
+                    onChange={() => setHoldDialog(prev => ({ ...prev, doSuspendSubs: !prev.doSuspendSubs }))}
+                    className="w-4 h-4 accent-amber-600 rounded" />
+                  <span className="text-xs font-body text-amber-700">定期受注を解約する</span>
+                </label>
+              )}
+            </div>
+            <div className="mb-5">
+              <label className="block text-xs font-heading font-semibold text-cream-600 mb-1.5">メール・SMS送信</label>
+              <select
+                value={holdDialog.mailTemplateId}
+                onChange={(e) => setHoldDialog(prev => ({ ...prev, mailTemplateId: e.target.value }))}
+                className="w-full text-sm border border-cream-200 rounded-lg px-3 py-2 font-body text-cream-700 bg-white focus:outline-none focus:ring-1 focus:ring-accent/30">
+                <option value="">送信しない</option>
+                {holdMailTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setHoldDialog(null)}
+                className="flex-1 py-2.5 bg-cream-100 hover:bg-cream-200 text-cream-700 text-sm rounded-lg font-body transition-colors">
+                戻る
+              </button>
+              <button
+                onClick={() => handleHoldOrder(holdDialog)}
+                disabled={!holdDialog.doHold && !holdDialog.doSuspendSubs && !holdDialog.mailTemplateId}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg font-heading font-semibold transition-colors">
+                実行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* キャンセル確認ダイアログ */}
       {cancelConfirmDialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
@@ -2948,7 +3038,7 @@ function StatCard({ label, value, sub, color = 'text-cream-900' }) {
 }
 
 // ======================== Settings Page ========================
-function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywordsState, irregularCodes, setIrregularCodesState, apiConfig, setApiConfigState, setIsDemo, showToast, ecforceApi, setEcforceApi, setAddressService }) {
+function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywordsState, irregularCodes, setIrregularCodesState, apiConfig, setApiConfigState, setIsDemo, showToast, ecforceApi, setEcforceApi, setAddressService, holdMailTemplates, setHoldMailTemplatesState }) {
   const [activeTab, setActiveTab] = useState('holidays');
   const [newHoliday, setNewHoliday] = useState('');
   const [newKeyword, setNewKeyword] = useState('');
@@ -2961,11 +3051,14 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
   const [testResult, setTestResult] = useState(null);
   const [newIrregWarehouse, setNewIrregWarehouse] = useState('fj_logi');
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [newTplLabel, setNewTplLabel] = useState('');
+  const [newTplId, setNewTplId] = useState('');
 
   const tabs = [
     { id: 'holidays', label: '祝日管理' },
     { id: 'oplux', label: 'O-PLUXキーワード' },
     { id: 'irregular', label: 'イレギュラー商品' },
+    { id: 'holdTemplates', label: '保留メールテンプレート' },
     { id: 'api', label: 'API設定' },
   ];
 
@@ -3019,6 +3112,25 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
     const u = irregularCodes.filter((x) => (typeof x === 'object' ? x.code : x) !== code);
     await setIrregularCodes(u);
     setIrregularCodesState(u);
+    setSettingsLoading(false);
+  };
+
+  const saveHoldTemplate = async () => {
+    if (!newTplLabel.trim() || !newTplId.trim()) return;
+    setSettingsLoading(true);
+    const updated = [...(holdMailTemplates || []), { id: newTplId.trim(), label: newTplLabel.trim() }];
+    await setHoldMailTemplates(updated);
+    setHoldMailTemplatesState(updated);
+    setNewTplLabel('');
+    setNewTplId('');
+    showToast('テンプレートを追加しました', 'success');
+    setSettingsLoading(false);
+  };
+  const removeHoldTemplate = async (id) => {
+    setSettingsLoading(true);
+    const updated = (holdMailTemplates || []).filter((t) => t.id !== id);
+    await setHoldMailTemplates(updated);
+    setHoldMailTemplatesState(updated);
     setSettingsLoading(false);
   };
 
@@ -3152,6 +3264,49 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
                   })}
                 </div>
               )}
+            </div>
+          )}
+          {activeTab === 'holdTemplates' && (
+            <div className="space-y-4">
+              <p className="text-xs font-body text-cream-500">
+                保留処理時の「メール・SMS送信」選択肢を管理します。テンプレートIDはecforce管理画面で確認してください。
+              </p>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <label className="text-xs font-heading font-semibold text-cream-600 block mb-1">テンプレート名</label>
+                  <input type="text" value={newTplLabel} onChange={(e) => setNewTplLabel(e.target.value)}
+                    placeholder="例: 決済エラーのお知らせ"
+                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-lg font-body focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                </div>
+                <div className="w-28">
+                  <label className="text-xs font-heading font-semibold text-cream-600 block mb-1">テンプレートID</label>
+                  <input type="number" value={newTplId} onChange={(e) => setNewTplId(e.target.value)}
+                    placeholder="例: 12"
+                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-lg font-body focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                </div>
+                <button onClick={saveHoldTemplate}
+                  disabled={!newTplLabel.trim() || !newTplId.trim() || settingsLoading}
+                  className="px-4 py-2 bg-accent text-white text-sm rounded-lg font-heading font-semibold disabled:opacity-40 transition-colors">
+                  追加
+                </button>
+              </div>
+              <div className="space-y-2">
+                {(holdMailTemplates || []).map((t) => (
+                  <div key={t.id} className="flex items-center justify-between px-3 py-2 bg-cream-50 rounded-lg border border-cream-200">
+                    <div>
+                      <span className="text-sm font-body text-cream-800">{t.label}</span>
+                      <span className="ml-2 text-xs font-mono text-cream-500">ID: {t.id}</span>
+                    </div>
+                    <button onClick={() => removeHoldTemplate(t.id)}
+                      className="text-cream-400 hover:text-red-500 transition-colors">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+                {(holdMailTemplates || []).length === 0 && (
+                  <p className="text-xs font-body text-cream-400 text-center py-4">テンプレートが登録されていません</p>
+                )}
+              </div>
             </div>
           )}
           {activeTab === 'api' && (
