@@ -2429,6 +2429,16 @@ function ShippingApp() {
           const shippingName = [addr.family_name, addr.given_name].filter(Boolean).join(' ');
           const shippingAddr = [addr.prefecture, addr.city, addr.street, addr.building].filter(Boolean).join('');
           const isReview = opluxResult === 'REVIEW';
+          // 住所校正結果
+          const ar = addressResults[order.id];
+          const c = ar?.correction;
+          const correctedAddrStr = c
+            ? [
+                addr.prefecture,
+                c.corrected_addr01 || `${c.city || ''}${c.town || ''}`.trim(),
+                c.corrected_addr02 || '',
+              ].filter(Boolean).join('')
+            : null;
           return (
             <div key={order.id} className={`rounded-xl border-2 bg-white p-4 ${isReview ? 'border-red-200' : 'border-amber-200'}`}>
               <div className="flex items-center justify-between gap-3 mb-3">
@@ -2451,10 +2461,35 @@ function ShippingApp() {
                   <span className="text-cream-400 w-20 shrink-0">配送先氏名</span>
                   <span className="text-cream-700">{highlight(shippingName) || '-'}</span>
                 </div>
-                <div className="flex gap-2">
-                  <span className="text-cream-400 w-20 shrink-0">配送先住所</span>
-                  <span className="text-cream-700 break-all">{highlight(shippingAddr) || '-'}</span>
-                </div>
+                {/* 配送先住所: 住所校正結果に応じて表示切り替え */}
+                {ar?.applied ? (
+                  <div className="flex gap-2">
+                    <span className="text-cream-400 w-20 shrink-0">配送先住所</span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                        <span className="text-cream-700 break-all">{highlight(correctedAddrStr) || '-'}</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-heading font-bold bg-green-100 text-green-700 shrink-0">住所校正済み</span>
+                      </div>
+                      <div className="text-[10px] text-cream-400 break-all line-through">{shippingAddr}</div>
+                    </div>
+                  </div>
+                ) : correctedAddrStr ? (
+                  <div className="flex gap-2">
+                    <span className="text-cream-400 w-20 shrink-0">配送先住所</span>
+                    <div className="flex-1">
+                      <div className="text-[10px] text-cream-400 break-all mb-0.5">{shippingAddr}（元住所）</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-cream-700 break-all">{highlight(correctedAddrStr) || '-'}</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-heading font-bold bg-amber-100 text-amber-700 shrink-0">住所校正あり</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <span className="text-cream-400 w-20 shrink-0">配送先住所</span>
+                    <span className="text-cream-700 break-all">{highlight(shippingAddr) || '-'}</span>
+                  </div>
+                )}
                 {opluxResult && <div className="flex gap-2">
                   <span className="text-cream-400 w-20 shrink-0">審査結果</span>
                   <span className="font-mono text-cream-700">{opluxResult}</span>
