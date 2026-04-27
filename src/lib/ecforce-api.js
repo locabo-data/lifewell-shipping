@@ -779,6 +779,10 @@ export function judgePersonName({ name01, name02, full_name } = {}) {
     if (n01 && kanjiTailShortHira(n01)) reasons.push('NAME01_KANJI_TAIL_HIRA_SHORT');
     if (n02 && kanjiTailShortHira(n02)) reasons.push('NAME02_KANJI_TAIL_HIRA_SHORT');
     if (fn && containsTestWord(fn)) reasons.push('FULL_NAME_TEST_WORD');
+    // ひらがなのみで5文字以上 → 誤入力（例: よしあけきら）
+    const isOnlyHira = (s) => s.length > 0 && /^[ぁ-んゕゖゔ]+$/.test(s);
+    if (n01 && isOnlyHira(n01) && n01.length >= 5) reasons.push('NAME01_HIRA_ONLY_TOO_LONG');
+    if (n02 && isOnlyHira(n02) && n02.length >= 5) reasons.push('NAME02_HIRA_ONLY_TOO_LONG');
   } else {
     commonChecks('FULL_NAME', fn, { minLen: 2, maxLen: 50 });
     const hasSeparator = /[\s・]/.test(fn);
@@ -873,37 +877,57 @@ export const TaskProcessors = {
 
   /** タスク8: 重複注文確認 — 同一氏名 or 同一住所 の受注グループ */
   duplicate: (orders) => {
+    // 氏名の正規化（全角→半角、スペース除去、小文字化）
+    const normalizeName = (s) =>
+      (s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+    // 住所の正規化（全角→半角、スペース除去、各種ハイフン統一）
+    const normalizeAddr = (addr) => {
+      const raw = addr?.full_address
+        || `${addr?.prefecture || ''}${addr?.city || ''}${addr?.street || ''}`;
+      return raw.normalize('NFKC').replace(/\s+/g, '').replace(/[ー－─—―]/g, '-').toLowerCase();
+    };
+
     const nameMap = {};
     const addrMap = {};
-    const duplicateIds = new Set();
 
     orders.forEach((o) => {
       const addr = o.shipping_address;
-      const name = addr
-        ? `${addr.family_name || ''}${addr.given_name || ''}`.trim()
-        : '';
-      const fullAddr = addr?.full_address
-        || `${addr?.prefecture || ''}${addr?.city || ''}${addr?.street || ''}`;
-      const normalizedAddr = fullAddr.replace(/\s+/g, '').replace(/ー/g, '-');
+      const nameKey = normalizeName(`${addr?.family_name || ''}${addr?.given_name || ''}`);
+      const addrKey = normalizeAddr(addr);
 
-      if (name) {
-        if (!nameMap[name]) nameMap[name] = [];
-        nameMap[name].push(o);
+      if (nameKey) {
+        if (!nameMap[nameKey]) nameMap[nameKey] = [];
+        nameMap[nameKey].push(o);
       }
-      if (normalizedAddr) {
-        if (!addrMap[normalizedAddr]) addrMap[normalizedAddr] = [];
-        addrMap[normalizedAddr].push(o);
+      if (addrKey) {
+        if (!addrMap[addrKey]) addrMap[addrKey] = [];
+        addrMap[addrKey].push(o);
       }
     });
 
-    Object.values(nameMap).forEach((group) => {
-      if (group.length > 1) group.forEach((o) => duplicateIds.add(o.id));
+    // 各受注にグループキーをアノテート（addr優先）
+    const orderGroupKey = {};
+
+    Object.entries(addrMap).forEach(([addrKey, group]) => {
+      if (group.length > 1) {
+        group.forEach((o) => {
+          orderGroupKey[o.id] = { key: `addr:${addrKey}`, reason: 'addr' };
+        });
+      }
     });
-    Object.values(addrMap).forEach((group) => {
-      if (group.length > 1) group.forEach((o) => duplicateIds.add(o.id));
+    Object.entries(nameMap).forEach(([nameKey, group]) => {
+      if (group.length > 1) {
+        group.forEach((o) => {
+          if (!orderGroupKey[o.id]) {
+            orderGroupKey[o.id] = { key: `name:${nameKey}`, reason: 'name' };
+          }
+        });
+      }
     });
 
-    return orders.filter((o) => duplicateIds.has(o.id));
+    return orders
+      .filter((o) => orderGroupKey[o.id])
+      .map((o) => ({ ...o, _dupGroupKey: orderGroupKey[o.id].key, _dupReason: orderGroupKey[o.id].reason }));
   },
 
   /** タスク9: 単品注文確認 — 特定商品コードを含む受注 (デフォルト: EA00, WB00, SU00) */

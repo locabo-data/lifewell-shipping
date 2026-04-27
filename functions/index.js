@@ -5,9 +5,13 @@
  * - レート制限 (1 req/sec) を制御
  */
 import { onRequest } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+
+const ecforceTokenSecret = defineSecret('ECFORCE_API_TOKEN');
+const openaiKeySecret    = defineSecret('OPENAI_API_KEY');
 
 initializeApp();
 const db = getFirestore();
@@ -49,14 +53,15 @@ async function getApiConfig() {
  * body: { method, path, body?, params? }
  */
 export const ecforceProxy = onRequest(
-  { cors: true, region: 'asia-northeast1' },
+  { cors: true, region: 'asia-northeast1', secrets: [ecforceTokenSecret] },
   async (req, res) => {
     try {
       // 認証チェック
       await verifyAuth(req);
 
       const config = await getApiConfig();
-      if (!config.ecforceBaseUrl || !config.ecforceToken) {
+      const ecforceToken = ecforceTokenSecret.value();
+      if (!config.ecforceBaseUrl || !ecforceToken) {
         res.status(400).json({ error: 'ecforce API not configured' });
         return;
       }
@@ -72,7 +77,7 @@ export const ecforceProxy = onRequest(
       const fetchOptions = {
         method,
         headers: {
-          Authorization: `Bearer ${config.ecforceToken}`,
+          Authorization: `Bearer ${ecforceToken}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
@@ -105,13 +110,14 @@ const OPENAI_ENDPOINT = 'https://api.openai.com/v1/responses';
  * body: { addresses: [{ zip, prefecture, city, street, building }] }
  */
 export const addressCorrection = onRequest(
-  { cors: true, region: 'asia-northeast1' },
+  { cors: true, region: 'asia-northeast1', secrets: [openaiKeySecret] },
   async (req, res) => {
     try {
       await verifyAuth(req);
 
       const config = await getApiConfig();
-      if (!config.openaiKey) {
+      const openaiKey = openaiKeySecret.value();
+      if (!openaiKey) {
         res.status(400).json({ error: 'OpenAI API key not configured' });
         return;
       }
@@ -132,7 +138,7 @@ export const addressCorrection = onRequest(
           const openaiRes = await fetch(OPENAI_ENDPOINT, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${config.openaiKey}`,
+              Authorization: `Bearer ${openaiKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({

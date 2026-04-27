@@ -265,7 +265,6 @@ function ShippingApp() {
   // shippingRegistered: { [groupKey]: boolean }
   // groupKey = 'regular' | 'fj_logi' | 'tsukamoto' など warehouseId に対応
   const [shippingRegistered, setShippingRegistered] = useState({});
-  const [shipRegisterModal, setShipRegisterModal] = useState(null); // { groupKey, shipListUrl, navigated }
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(null); // { fetched, total, page }
   const [addressApplying, setAddressApplying] = useState(false); // 住所校正一括反映中フラグ
@@ -297,7 +296,7 @@ function ShippingApp() {
         setApiConfigState(config);
         setWarehouseOverrides(whOverrides?.overrides || {});
         setHoldMailTemplatesState(holdTpls);
-        const demo = !(config?.ecforceBaseUrl && config?.ecforceToken);
+        const demo = !config?.ecforceBaseUrl;
         setIsDemo(demo);
         setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
         setAddressService(new AddressCorrectionService({ isDemo: demo, apiConfig: config }));
@@ -832,7 +831,7 @@ function ShippingApp() {
 
   // ---------- テスト注文キャンセル ----------
   const handleCancelOrder = async (dialog) => {
-    const { order, doOrder, doPayment, doSubs } = dialog;
+    const { order, doOrder, doPayment, doSubs, mailTemplateId } = dialog;
     setLoading('キャンセル処理中...');
     try {
       const api = ecforceApi || new EcforceAPI({ isDemo: true });
@@ -861,6 +860,12 @@ function ShippingApp() {
             subs_orders: [{ id: Number(order.subs_order_id), state: 'canceled' }],
           });
         }
+        // ④ メール・SMS送信
+        if (mailTemplateId) {
+          await api.proxyRequest('POST', `/api/v2/admin/orders/${order.id}/emails.json`, {
+            email_template_id: Number(mailTemplateId),
+          });
+        }
       }
       showToast(`受注 ${order.number} をキャンセルしました`, 'success');
       setCancelConfirmDialog(null);
@@ -872,7 +877,7 @@ function ShippingApp() {
 
   // ---------- 決済エラー保留処理 ----------
   const handleHoldOrder = async (dialog) => {
-    const { order, doHold, doSuspendSubs, mailTemplateId } = dialog;
+    const { order, doHold, doSuspendSubs, doSetTbc, mailTemplateId } = dialog;
     setLoading('保留処理中...');
     try {
       const api = ecforceApi || new EcforceAPI({ isDemo: true });
@@ -883,14 +888,20 @@ function ShippingApp() {
             orders: [{ id: Number(order.id), state: 'horyuu' }],
           });
         }
-        // ② 定期受注 → 停止（suspend）
+        // ② 要対応フラグをON
+        if (doSetTbc) {
+          await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
+            orders: [{ id: Number(order.id), tbc: true }],
+          });
+        }
+        // ③ 定期受注 → 停止（suspend）
         if (doSuspendSubs && order.subs_order_id) {
           await api.proxyRequest('PUT', '/api/v2/admin/subs_orders/bulk_update.json', {
             check_duplicate_link_numbers: 0,
             subs_orders: [{ id: Number(order.subs_order_id), state: 'suspend' }],
           });
         }
-        // ③ 受注メール送信
+        // ④ 受注メール送信
         if (mailTemplateId) {
           await api.proxyRequest('POST', `/api/v2/admin/orders/${order.id}/emails.json`, {
             email_template_id: Number(mailTemplateId),
@@ -944,9 +955,6 @@ function ShippingApp() {
     // fj_logi   (コマロボ / 土日祝) → wmswait
     const warehouseId = groupKey === 'regular' ? session?.warehouse?.id : groupKey;
     const shipmentState = warehouseId === 'tsukamoto' ? 'cooolawait' : 'wmswait';
-    // 出荷リストURL（全グループ共通）
-    const shipListUrl = 'https://lifewell.co.jp/admin/orders?q%5Btoken%5D=bf9b7b48-93b6-4889-8c0b-094c79f166df';
-
     console.log(`[registerShippingGroup] groupKey=${groupKey} warehouseId=${warehouseId} shipmentState=${shipmentState}`);
     console.log(`[registerShippingGroup] orderIds=`, orderIds);
 
@@ -958,25 +966,16 @@ function ShippingApp() {
       // ecforce bulk_update レスポンスから処理件数を取得（orders 配列の長さ）
       const processedCount = result?.orders?.length ?? orderIds.length;
       showToast(`${processedCount}件の出荷ステータスを変更しました`, 'success');
-      // ポップアップ表示（出荷リスト登録の案内）
-      setShipRegisterModal({
-        groupKey, shipListUrl, navigated: false,
-        submitted: orderIds.length,
-        processed: processedCount,
-      });
+      await completeShipRegister(groupKey, orderIds.length, processedCount);
     } catch (err) {
       showToast(`出荷ステータス変更エラー: ${err.message}`, 'error');
     }
     setLoading(false);
   };
 
-  // ポップアップで「完了」が押されたとき
-  const completeShipRegister = async (groupKey) => {
-    const modal = shipRegisterModal; // 現在のモーダル情報（submitted/processed）
-    setShipRegisterModal(null);
+  const completeShipRegister = async (groupKey, submitted = 0, processed = 0) => {
     setShippingRegistered((prev) => {
-      // { submitted, processed } オブジェクトで保存（truthy なのでブール判定は変わらない）
-      const info = { submitted: modal?.submitted ?? 0, processed: modal?.processed ?? 0 };
+      const info = { submitted, processed };
       const next = { ...prev, [groupKey]: info };
       // 全グループ（regular + 全 irregularOrders キー）が完了したかチェック
       const allKeys = ['regular', ...Object.keys(irregularOrders)];
@@ -1235,6 +1234,11 @@ function ShippingApp() {
                                 {info.shippingRelevant === false && (
                                   <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 text-[10px] font-heading font-semibold">対応状況のみ</span>
                                 )}
+                                <button
+                                  onClick={() => setSelectedShipIds((prev) => { const n = new Set(prev); n.delete(Number(id)); n.delete(String(id)); return n; })}
+                                  className="ml-auto flex items-center gap-1 px-2 py-0.5 bg-cream-100 hover:bg-red-50 hover:text-red-600 text-cream-500 text-[10px] rounded font-heading font-semibold transition-colors border border-cream-200 hover:border-red-200">
+                                  <X size={10} /> 出荷選択から除外
+                                </button>
                               </div>
                               <div className="mt-1.5 flex flex-wrap gap-4">
                                 {info.disappeared ? (
@@ -1399,7 +1403,7 @@ function ShippingApp() {
                         <div className="px-5 py-4 space-y-2">
                           <div className="flex items-center gap-3">
                             <CheckCircle2 size={18} className="text-green-600 shrink-0" />
-                            <span className="text-sm font-heading font-bold text-green-800">出荷ステータス変更・出荷リスト登録 完了</span>
+                            <span className="text-sm font-heading font-bold text-green-800">出荷ステータス変更 完了</span>
                           </div>
                           <div className="flex items-center gap-4 pl-7 text-xs font-body">
                             <span className="text-cream-600">
@@ -1569,7 +1573,7 @@ function ShippingApp() {
                         <div className="px-5 py-4 space-y-2">
                           <div className="flex items-center gap-2 text-green-600">
                             <CheckCircle2 size={18} />
-                            <span className="text-sm font-heading font-bold text-green-800">出荷ステータス変更・出荷リスト登録 完了</span>
+                            <span className="text-sm font-heading font-bold text-green-800">出荷ステータス変更 完了</span>
                           </div>
                           <div className="flex items-center gap-4 pl-7 text-xs font-body">
                             <span className="text-cream-600">
@@ -1938,6 +1942,23 @@ function ShippingApp() {
                     </>
                   ) : null}
                 </div>
+                {/* 住所不備アクション */}
+                {has_warning && (
+                  <div className="ml-7 mt-3">
+                    <button
+                      onClick={() => setHoldDialog({
+                        order,
+                        taskId: 'addressCorrection',
+                        doHold: true,
+                        doSetTbc: false,
+                        doSuspendSubs: false,
+                        mailTemplateId: '',
+                      })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                      <Pause size={13} /> SMS + 保留処理
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1968,10 +1989,11 @@ function ShippingApp() {
   // --- 重複注文タスク専用テーブル ---
   const renderDuplicateTable = (items) => {
     const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
-    // グループ化（氏名 + 郵便番号 をキーに同一枠でまとめる）
+    // グループ化（_dupGroupKey をキーに同一枠でまとめる）
     const groups = {};
     items.forEach((o) => {
-      const key = `${o.shipping_address?.family_name}${o.shipping_address?.given_name}_${o.shipping_address?.zip}`;
+      const key = o._dupGroupKey
+        || `${o.shipping_address?.family_name}${o.shipping_address?.given_name}_${o.shipping_address?.zip}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(o);
     });
@@ -1979,21 +2001,33 @@ function ShippingApp() {
     return (
       <div className="p-4 space-y-4">
         {Object.entries(groups).map(([key, groupOrders]) => {
-          const firstAddr = groupOrders[0]?.shipping_address || {};
+          const firstOrder = groupOrders[0];
+          const firstAddr = firstOrder?.shipping_address || {};
+          const isAddrGroup = firstOrder?._dupReason === 'addr';
           return (
             <div key={key} className="border border-red-200 rounded-lg overflow-hidden">
               <div className="bg-red-50 px-4 py-2 flex items-center gap-2">
                 <AlertTriangle size={14} className="text-red-500" />
                 <span className="text-sm font-heading font-semibold text-red-700">
-                  重複グループ: {firstAddr.family_name} {firstAddr.given_name}
-                  {firstAddr.zip && <span className="ml-2 font-normal text-red-500 text-xs">〒{firstAddr.zip}</span>}
+                  {isAddrGroup ? (
+                    <>
+                      重複グループ: 同一住所
+                      <span className="ml-2 font-normal text-red-500 text-xs">
+                        {firstAddr.prefecture}{firstAddr.city}{firstAddr.street}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      重複グループ: {firstAddr.family_name} {firstAddr.given_name}
+                      {firstAddr.zip && <span className="ml-2 font-normal text-red-500 text-xs">〒{firstAddr.zip}</span>}
+                    </>
+                  )}
                   <span className="ml-2">（{groupOrders.length}件）</span>
                 </span>
               </div>
               <table className="w-full">
                 <thead><tr className="bg-cream-50 text-left">
-                  <th className="px-3 py-2 text-xs font-heading text-cream-500 w-8"></th>
-                  <th className="px-3 py-2 text-xs font-heading text-cream-500">受注ID</th>
+                  <th className="px-3 py-2 text-xs font-heading text-cream-500">氏名</th>
                   <th className="px-3 py-2 text-xs font-heading text-cream-500">住所</th>
                   <th className="px-3 py-2 text-xs font-heading text-cream-500">決済</th>
                   <th className="px-3 py-2 text-xs font-heading text-cream-500">商品</th>
@@ -2001,20 +2035,13 @@ function ShippingApp() {
                 </tr></thead>
                 <tbody>
                   {groupOrders.map((o) => {
-                    const os = orderStatuses[o.id] || {};
-                    const adminUrl = ecBase ? `${ecBase}/admin/orders/${o.id}` : '#';
+                    const adminUrl = o.customer_id
+                      ? `https://lifewell.co.jp/admin/cs/customers/${o.customer_id}/orders`
+                      : '#';
                     return (
-                      <tr key={o.id} className={`border-t border-cream-100 ${os.checked ? 'bg-green-50/40' : ''}`}>
-                        <td className="px-3 py-2">
-                          <button onClick={() => toggleOrderChecked(o.id)} className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
-                            {os.checked && <Check size={12} />}
-                          </button>
-                        </td>
-                        <td className="px-3 py-2">
-                          <a href={adminUrl} target="_blank" rel="noopener noreferrer"
-                            className="text-sm font-mono text-accent hover:underline flex items-center gap-1">
-                            {o.id}<ExternalLink size={11} className="opacity-60" />
-                          </a>
+                      <tr key={o.id} className="border-t border-cream-100">
+                        <td className="px-3 py-2 text-sm font-body text-cream-800 font-semibold">
+                          {o.shipping_address?.family_name} {o.shipping_address?.given_name}
                         </td>
                         <td className="px-3 py-2 text-sm font-body text-cream-600">{o.shipping_address?.prefecture}{o.shipping_address?.city}{o.shipping_address?.street}</td>
                         <td className="px-3 py-2 text-sm font-body text-cream-600">{o.payment_method_name}</td>
@@ -2043,20 +2070,15 @@ function ShippingApp() {
     return (
       <div className="p-4 space-y-3">
         {items.map((order) => {
-          const os = orderStatuses[order.id] || {};
           const addr = order.shipping_address || {};
           const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
           const amount = order.total ?? order.charge ?? order.subtotal ?? null;
           const errorMsg = order.payment_last_error_message || order.payment_state || null;
           return (
-            <div key={order.id} className={`rounded-xl border-2 p-4 transition-colors ${os.checked ? 'border-green-200 bg-green-50/40' : 'border-red-200 bg-white'}`}>
-              {/* ヘッダー: チェック + 受注ID + 氏名 + 管理画面リンク */}
+            <div key={order.id} className="rounded-xl border-2 p-4 border-red-200 bg-white">
+              {/* ヘッダー: 受注ID + 氏名 + 管理画面リンク */}
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button onClick={() => toggleOrderChecked(order.id)}
-                    className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${os.checked ? 'bg-green-500 border-green-500 text-white' : 'border-cream-300 hover:border-accent'}`}>
-                    {os.checked && <Check size={12} />}
-                  </button>
                   <span className="font-mono text-sm text-accent font-semibold">受注ID: {order.id}</span>
                   <span className="text-sm font-body text-cream-800 font-semibold">{addr.family_name} {addr.given_name}</span>
                 </div>
@@ -2081,7 +2103,7 @@ function ShippingApp() {
               {/* 保留処理ボタン */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setHoldDialog({ order, doHold: true, doSuspendSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                  onClick={() => setHoldDialog({ order, taskId: 'paymentError', doHold: true, doSuspendSubs: !!order.subs_order_id, doSetTbc: true, mailTemplateId: '' })}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
                   <Pause size={13} /> 保留処理
                 </button>
@@ -2268,12 +2290,26 @@ function ShippingApp() {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button onClick={() => setNameEditDialog({ order })}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
               <Edit3 size={13} /> 修正
             </button>
-            <button onClick={() => setCancelConfirmDialog({ order, doOrder: true, doPayment: true, doSubs: !!order.subs_order_id })}
+            {!isTest && (
+              <button
+                onClick={() => setHoldDialog({
+                  order,
+                  taskId: 'nameAnomaly',
+                  doHold: true,
+                  doSetTbc: false,
+                  doSuspendSubs: false,
+                  mailTemplateId: '',
+                })}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                <Pause size={13} /> SMS + 保留処理
+              </button>
+            )}
+            <button onClick={() => setCancelConfirmDialog({ order, title: 'テスト受注をキャンセルしますか？', taskId: 'nameAnomaly', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
               <Ban size={13} /> テスト受注キャンセル
             </button>
@@ -2334,10 +2370,17 @@ function ShippingApp() {
                     <div>受注日: <span className="font-mono">{completedAt}</span></div>
                   </div>
                 </div>
-                <a href={adminUrl} target="_blank" rel="noopener noreferrer"
-                  className="shrink-0 flex items-center gap-1 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
-                  詳細確認 <ExternalLink size={11} />
-                </a>
+                <div className="flex flex-col gap-1.5 shrink-0">
+                  <a href={adminUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                    詳細確認 <ExternalLink size={11} />
+                  </a>
+                  <button
+                    onClick={() => setCancelConfirmDialog({ order, title: '購入URL確認：キャンセルしますか？', taskId: 'purchaseUrl', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                    <Ban size={11} /> キャンセル
+                  </button>
+                </div>
               </div>
             </div>
           );
@@ -2360,6 +2403,7 @@ function ShippingApp() {
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">郵便番号</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">住所</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">商品コード</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">アクション</th>
             </tr>
           </thead>
           <tbody>
@@ -2386,6 +2430,13 @@ function ShippingApp() {
                       ))}
                     </div>
                   </td>
+                  <td className="px-3 py-3">
+                    <button
+                      onClick={() => setCancelConfirmDialog({ order, title: '単品注文をキャンセルしますか？', taskId: 'singleItem', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors whitespace-nowrap">
+                      <Ban size={13} /> キャンセル
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -2407,6 +2458,7 @@ function ShippingApp() {
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">メールアドレス</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">支払方法ID</th>
               <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">合計金額</th>
+              <th className="px-3 py-3 text-xs font-heading font-semibold text-cream-500">アクション</th>
             </tr>
           </thead>
           <tbody>
@@ -2422,6 +2474,20 @@ function ShippingApp() {
                   <td className="px-3 py-3 text-sm font-body text-cream-700">{order.email || '-'}</td>
                   <td className="px-3 py-3 text-xs font-mono text-cream-600">{order.payment_method_id ?? '-'}</td>
                   <td className="px-3 py-3 text-sm font-mono text-cream-800">¥{(order.total_price || order.subtotal || 0).toLocaleString()}</td>
+                  <td className="px-3 py-3">
+                    <button
+                      onClick={() => setHoldDialog({
+                        order,
+                        taskId: 'npPayment',
+                        doHold: false,
+                        doSetTbc: true,
+                        doSuspendSubs: !!order.subs_order_id,
+                        mailTemplateId: '',
+                      })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors whitespace-nowrap">
+                      <Pause size={13} /> SMS + 要対応
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -2442,13 +2508,25 @@ function ShippingApp() {
         pattern.test(part) ? <mark key={i} className="bg-red-200 text-red-900 px-0.5 rounded font-semibold">{part}</mark> : part
       );
     };
+    // OK判定かつキーワードにヒットしないものは非表示
+    const visibleItems = items.filter((order) => {
+      const result = String(order.o_plux_result || '').toUpperCase();
+      if (result !== 'OK') return true; // REVIEW等は常に表示
+      if (!opluxKeywords.length) return true; // キーワード未設定なら全表示
+      const desc = String(order.o_plux_description || '').toLowerCase();
+      return opluxKeywords.some((k) => desc.includes(k.toLowerCase()));
+    });
+
     return (
       <div className="p-4 space-y-3">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm font-body text-amber-800 mb-2">
           <p className="font-heading font-semibold mb-1">O-PLUX審査確認</p>
           <p className="text-xs">初回受注でO-PLUXのREVIEW / OK判定が出た受注です。登録キーワードが赤くハイライトされます。</p>
         </div>
-        {items.map((order) => {
+        {visibleItems.length === 0 && (
+          <p className="text-sm font-body text-cream-400 text-center py-4">対象の受注はありません</p>
+        )}
+        {visibleItems.map((order) => {
           const addr = order.shipping_address || {};
           const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
           const opluxResult = String(order.o_plux_result || '').toUpperCase();
@@ -2459,13 +2537,15 @@ function ShippingApp() {
           // 住所校正結果
           const ar = addressResults[order.id];
           const c = ar?.correction;
-          const correctedAddrStr = c
-            ? [
-                addr.prefecture,
-                c.corrected_addr01 || `${c.city || ''}${c.town || ''}`.trim(),
-                c.corrected_addr02 || '',
-              ].filter(Boolean).join('')
-            : null;
+          const correctedAddrStr = c ? (() => {
+            if (c.corrected_address) return c.corrected_address;
+            if (c.address) return c.address;
+            const addr01 = c.corrected_addr01 || `${c.city || ''}${c.town || ''}`.trim();
+            const street = [c.chome, c.banchi, c.go].filter(Boolean).join('');
+            const building = [c.building, c.building_number].filter(Boolean).join(' ');
+            const addr02 = c.corrected_addr02 || [street, building].filter(Boolean).join(' ');
+            return `${addr.prefecture || ''}${addr01}${addr02 ? addr02 : ''}`.trim();
+          })() : null;
           return (
             <div key={order.id} className={`rounded-xl border-2 bg-white p-4 ${isReview ? 'border-red-200' : 'border-amber-200'}`}>
               <div className="flex items-center justify-between gap-3 mb-3">
@@ -2488,27 +2568,16 @@ function ShippingApp() {
                   <span className="text-cream-400 w-20 shrink-0">配送先氏名</span>
                   <span className="text-cream-700">{highlight(shippingName) || '-'}</span>
                 </div>
-                {/* 配送先住所: 住所校正結果に応じて表示切り替え */}
+                {/* 配送先住所: ecforceへ書き戻し済みのみ「住所校正あり」バッジを表示 */}
                 {ar?.applied ? (
                   <div className="flex gap-2">
                     <span className="text-cream-400 w-20 shrink-0">配送先住所</span>
                     <div className="flex-1">
                       <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                         <span className="text-cream-700 break-all">{highlight(correctedAddrStr) || '-'}</span>
-                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-heading font-bold bg-green-100 text-green-700 shrink-0">住所校正済み</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-heading font-bold bg-green-100 text-green-700 shrink-0">住所校正あり</span>
                       </div>
                       <div className="text-[10px] text-cream-400 break-all line-through">{shippingAddr}</div>
-                    </div>
-                  </div>
-                ) : correctedAddrStr ? (
-                  <div className="flex gap-2">
-                    <span className="text-cream-400 w-20 shrink-0">配送先住所</span>
-                    <div className="flex-1">
-                      <div className="text-[10px] text-cream-400 break-all mb-0.5">{shippingAddr}（元住所）</div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-cream-700 break-all">{highlight(correctedAddrStr) || '-'}</span>
-                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-heading font-bold bg-amber-100 text-amber-700 shrink-0">住所校正あり</span>
-                      </div>
                     </div>
                   </div>
                 ) : (
@@ -2525,6 +2594,26 @@ function ShippingApp() {
                   <span className="text-cream-400 w-20 shrink-0">審査詳細</span>
                   <span className="text-cream-700 break-all">{highlight(opluxDesc)}</span>
                 </div>}
+              </div>
+              {/* アクションボタン */}
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <button
+                  onClick={() => setHoldDialog({
+                    order,
+                    taskId: 'oplux',
+                    doHold: true,
+                    doSetTbc: false,
+                    doSuspendSubs: false,
+                    mailTemplateId: '',
+                  })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                  <Pause size={13} /> SMS + 保留処理
+                </button>
+                <button
+                  onClick={() => setCancelConfirmDialog({ order, title: 'O-PLUX：キャンセルしますか？', taskId: 'oplux', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                  <Ban size={13} /> キャンセル
+                </button>
               </div>
             </div>
           );
@@ -2840,56 +2929,6 @@ function ShippingApp() {
       {loading && <LoadingSpinner message={loading === true ? '処理中...' : loading} />}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* 出荷ステータス変更完了 → 出荷リスト登録案内ポップアップ */}
-      {shipRegisterModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl w-full max-w-md p-7 shadow-2xl">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-3 bg-green-100 rounded-xl text-green-600"><CheckCircle2 size={24} /></div>
-              <div>
-                <h3 className="font-heading font-bold text-lg text-cream-900">出荷ステータス変更 完了</h3>
-                <p className="text-xs font-body text-cream-500 mt-0.5">続けて出荷リスト登録を行ってください</p>
-              </div>
-            </div>
-
-            {/* 手順説明 */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
-              <p className="text-sm font-heading font-semibold text-blue-800 mb-2">出荷リスト登録をしてください</p>
-              <div className="flex items-center gap-2 text-sm font-body text-blue-700 flex-wrap">
-                <span className="px-2.5 py-1 bg-blue-100 rounded-lg font-semibold">一括更新</span>
-                <span className="text-blue-400">→</span>
-                <span className="px-2.5 py-1 bg-blue-100 rounded-lg font-semibold">出荷リスト：出力済</span>
-                <span className="text-blue-400">→</span>
-                <span className="px-2.5 py-1 bg-blue-100 rounded-lg font-semibold">保存</span>
-              </div>
-            </div>
-
-            {/* 遷移ボタン */}
-            {!shipRegisterModal.navigated ? (
-              <a
-                href={shipRegisterModal.shipListUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setShipRegisterModal((prev) => prev ? { ...prev, navigated: true } : prev)}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-accent hover:bg-accent-dark text-white text-sm rounded-xl font-heading font-bold transition-colors shadow-md">
-                <ExternalLink size={16} /> 出荷リスト画面を開く
-              </a>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm font-body text-green-600 bg-green-50 rounded-lg px-3 py-2">
-                  <CheckCircle2 size={16} /> 画面を開きました。手順に従って保存してください。
-                </div>
-                <button
-                  onClick={() => completeShipRegister(shipRegisterModal.groupKey)}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white text-sm rounded-xl font-heading font-bold transition-colors shadow-md">
-                  <CheckCircle2 size={16} /> 完了
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* 差分チェック中モーダル（操作ブロック） */}
       {recheckLoading && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fadeIn">
@@ -2934,6 +2973,12 @@ function ShippingApp() {
                   className="w-4 h-4 accent-amber-600 rounded" />
                 <span className="text-xs font-body text-amber-700">受注保留にする</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={!!holdDialog.doSetTbc}
+                  onChange={() => setHoldDialog(prev => ({ ...prev, doSetTbc: !prev.doSetTbc }))}
+                  className="w-4 h-4 accent-amber-600 rounded" />
+                <span className="text-xs font-body text-amber-700">要対応をはいにする</span>
+              </label>
               {holdDialog.order.subs_order_id && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={holdDialog.doSuspendSubs}
@@ -2950,9 +2995,12 @@ function ShippingApp() {
                 onChange={(e) => setHoldDialog(prev => ({ ...prev, mailTemplateId: e.target.value }))}
                 className="w-full text-sm border border-cream-200 rounded-lg px-3 py-2 font-body text-cream-700 bg-white focus:outline-none focus:ring-1 focus:ring-accent/30">
                 <option value="">送信しない</option>
-                {holdMailTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
+                {holdMailTemplates
+                  .filter((t) => !t.taskIds?.length || (holdDialog.taskId && t.taskIds.includes(holdDialog.taskId)))
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))
+                }
               </select>
             </div>
             <div className="flex gap-3">
@@ -2962,7 +3010,7 @@ function ShippingApp() {
               </button>
               <button
                 onClick={() => handleHoldOrder(holdDialog)}
-                disabled={!holdDialog.doHold && !holdDialog.doSuspendSubs && !holdDialog.mailTemplateId}
+                disabled={!holdDialog.doHold && !holdDialog.doSetTbc && !holdDialog.doSuspendSubs && !holdDialog.mailTemplateId}
                 className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg font-heading font-semibold transition-colors">
                 実行
               </button>
@@ -2977,12 +3025,14 @@ function ShippingApp() {
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2.5 bg-red-100 rounded-lg text-red-600"><Ban size={20} /></div>
-              <h3 className="font-heading font-bold text-base text-cream-900">テスト受注をキャンセルしますか？</h3>
+              <h3 className="font-heading font-bold text-base text-cream-900">
+                {cancelConfirmDialog.title || 'キャンセル処理'}
+              </h3>
             </div>
             <p className="text-sm font-body text-cream-600 mb-3">
               受注ID: <span className="font-mono text-accent">{cancelConfirmDialog.order.id}</span>
             </p>
-            <div className="bg-red-50 rounded-lg px-4 py-3 mb-5 space-y-2">
+            <div className="bg-red-50 rounded-lg px-4 py-3 mb-4 space-y-2">
               <p className="text-xs font-heading font-semibold text-red-700 mb-2">実行する操作を選択：</p>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={cancelConfirmDialog.doOrder}
@@ -3005,13 +3055,28 @@ function ShippingApp() {
                 </label>
               )}
             </div>
+            <div className="mb-5">
+              <label className="block text-xs font-heading font-semibold text-cream-600 mb-1.5">メール・SMS送信</label>
+              <select
+                value={cancelConfirmDialog.mailTemplateId || ''}
+                onChange={(e) => setCancelConfirmDialog(prev => ({ ...prev, mailTemplateId: e.target.value }))}
+                className="w-full text-sm border border-cream-200 rounded-lg px-3 py-2 font-body text-cream-700 bg-white focus:outline-none focus:ring-1 focus:ring-accent/30">
+                <option value="">送信しない</option>
+                {holdMailTemplates
+                  .filter((t) => !t.taskIds?.length || (cancelConfirmDialog.taskId && t.taskIds.includes(cancelConfirmDialog.taskId)))
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))
+                }
+              </select>
+            </div>
             <div className="flex gap-3">
               <button onClick={() => setCancelConfirmDialog(null)}
                 className="flex-1 py-2.5 bg-cream-100 hover:bg-cream-200 text-cream-700 text-sm rounded-lg font-body transition-colors">
                 戻る
               </button>
               <button onClick={() => handleCancelOrder(cancelConfirmDialog)}
-                disabled={!cancelConfirmDialog.doOrder && !cancelConfirmDialog.doPayment && !cancelConfirmDialog.doSubs}
+                disabled={!cancelConfirmDialog.doOrder && !cancelConfirmDialog.doPayment && !cancelConfirmDialog.doSubs && !cancelConfirmDialog.mailTemplateId}
                 className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg font-heading font-semibold transition-colors">
                 キャンセル実行
               </button>
@@ -3050,8 +3115,6 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
   const [newKeyword, setNewKeyword] = useState('');
   const [newCode, setNewCode] = useState('');
   const [ecforceBaseUrl, setEcforceBaseUrl] = useState(apiConfig?.ecforceBaseUrl || '');
-  const [ecforceToken, setEcforceToken] = useState(apiConfig?.ecforceToken || '');
-  const [openaiKey, setOpenaiKey] = useState(apiConfig?.openaiKey || '');
   const [openaiPromptId, setOpenaiPromptId] = useState(apiConfig?.openaiPromptId || 'pmpt_68c23271a2648190a7271a024b25f451065e59a2da9efda4');
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -3059,12 +3122,13 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [newTplLabel, setNewTplLabel] = useState('');
   const [newTplId, setNewTplId] = useState('');
+  const [newTplTaskIds, setNewTplTaskIds] = useState([]);
 
   const tabs = [
     { id: 'holidays', label: '祝日管理' },
     { id: 'oplux', label: 'O-PLUXキーワード' },
     { id: 'irregular', label: 'イレギュラー商品' },
-    { id: 'holdTemplates', label: '保留メールテンプレート' },
+    { id: 'holdTemplates', label: 'メール・SMS送信' },
     { id: 'api', label: 'API設定' },
   ];
 
@@ -3124,11 +3188,12 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
   const saveHoldTemplate = async () => {
     if (!newTplLabel.trim() || !newTplId.trim()) return;
     setSettingsLoading(true);
-    const updated = [...(holdMailTemplates || []), { id: newTplId.trim(), label: newTplLabel.trim() }];
+    const updated = [...(holdMailTemplates || []), { id: newTplId.trim(), label: newTplLabel.trim(), taskIds: newTplTaskIds }];
     await setHoldMailTemplates(updated);
     setHoldMailTemplatesState(updated);
     setNewTplLabel('');
     setNewTplId('');
+    setNewTplTaskIds([]);
     showToast('テンプレートを追加しました', 'success');
     setSettingsLoading(false);
   };
@@ -3151,10 +3216,10 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
 
   const saveApiSettings = async () => {
     setSaving(true);
-    const config = { ecforceBaseUrl, ecforceToken, openaiKey, openaiPromptId };
+    const config = { ecforceBaseUrl, openaiPromptId };
     await setApiConfig(config);
     setApiConfigState(config);
-    const demo = !(ecforceBaseUrl && ecforceToken);
+    const demo = !ecforceBaseUrl;
     setIsDemo(demo);
     setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
     setAddressService(new AddressCorrectionService({ isDemo: demo, apiConfig: config }));
@@ -3165,7 +3230,7 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
   const testApiConnection = async () => {
     setTestResult(null);
     try {
-      const testApi = new EcforceAPI({ isDemo: false, apiConfig: { ecforceBaseUrl, ecforceToken } });
+      const testApi = new EcforceAPI({ isDemo: false, apiConfig: { ecforceBaseUrl } });
       await testApi.proxyRequest('GET', '/api/v2/admin/orders', null, { per: 1 });
       setTestResult({ success: true, message: '接続成功' });
     } catch (err) {
@@ -3275,36 +3340,74 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
           {activeTab === 'holdTemplates' && (
             <div className="space-y-4">
               <p className="text-xs font-body text-cream-500">
-                保留処理時の「メール・SMS送信」選択肢を管理します。テンプレートIDはecforce管理画面で確認してください。
+                「メール・SMS送信」のテンプレート設定です。
               </p>
-              <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                  <label className="text-xs font-heading font-semibold text-cream-600 block mb-1">テンプレート名</label>
-                  <input type="text" value={newTplLabel} onChange={(e) => setNewTplLabel(e.target.value)}
-                    placeholder="例: 決済エラーのお知らせ"
-                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-lg font-body focus:outline-none focus:ring-1 focus:ring-accent/30" />
+              {/* 追加フォーム */}
+              <div className="space-y-3 bg-cream-50 rounded-xl p-4 border border-cream-200">
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="text-xs font-heading font-semibold text-cream-600 block mb-1">テンプレート名</label>
+                    <input type="text" value={newTplLabel} onChange={(e) => setNewTplLabel(e.target.value)}
+                      placeholder="例: 決済エラーのお知らせ"
+                      className="w-full px-3 py-2 text-sm border border-cream-200 rounded-lg font-body bg-white focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                  </div>
+                  <div className="w-44">
+                    <label className="text-xs font-heading font-semibold text-cream-600 block mb-1">テンプレートID</label>
+                    <input type="text" inputMode="numeric" pattern="[0-9]*" value={newTplId} onChange={(e) => setNewTplId(e.target.value)}
+                      placeholder="例: 12"
+                      className="w-full px-3 py-2 text-sm border border-cream-200 rounded-lg font-body bg-white focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                  </div>
                 </div>
-                <div className="w-28">
-                  <label className="text-xs font-heading font-semibold text-cream-600 block mb-1">テンプレートID</label>
-                  <input type="number" value={newTplId} onChange={(e) => setNewTplId(e.target.value)}
-                    placeholder="例: 12"
-                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-lg font-body focus:outline-none focus:ring-1 focus:ring-accent/30" />
+                {/* 関連タスク（複数選択） */}
+                <div>
+                  <label className="text-xs font-heading font-semibold text-cream-600 block mb-1.5">関連タスク</label>
+                  <div className="grid grid-cols-1 gap-0.5">
+                    {[
+                      { id: 'pendingShipment',   label: '1. 過去出荷分確認' },
+                      { id: 'paymentError',       label: '2. 決済エラー確認' },
+                      { id: 'npPayment',          label: '3. NP別送確認' },
+                      { id: 'nameAnomaly',        label: '4. テスト注文・氏名不備' },
+                      { id: 'duplicate',          label: '5. 重複注文確認' },
+                      { id: 'singleItem',         label: '6. 単品注文確認' },
+                      { id: 'purchaseUrl',        label: '7. 購入URL確認' },
+                      { id: 'addressCorrection',  label: '8. 住所校正' },
+                      { id: 'oplux',              label: '9. O-PLUX審査確認' },
+                    ].map((task) => (
+                      <label key={task.id} className="flex items-center gap-2 cursor-pointer py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={newTplTaskIds.includes(task.id)}
+                          onChange={() => setNewTplTaskIds((prev) =>
+                            prev.includes(task.id) ? prev.filter((x) => x !== task.id) : [...prev, task.id]
+                          )}
+                          className="w-4 h-4 accent-accent rounded"
+                        />
+                        <span className="text-xs font-body text-cream-700">{task.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <button onClick={saveHoldTemplate}
                   disabled={!newTplLabel.trim() || !newTplId.trim() || settingsLoading}
-                  className="px-4 py-2 bg-accent text-white text-sm rounded-lg font-heading font-semibold disabled:opacity-40 transition-colors">
+                  className="w-full py-2 bg-accent text-white text-sm rounded-lg font-heading font-semibold disabled:opacity-40 transition-colors">
                   追加
                 </button>
               </div>
+              {/* テンプレート一覧 */}
               <div className="space-y-2">
                 {(holdMailTemplates || []).map((t) => (
-                  <div key={t.id} className="flex items-center justify-between px-3 py-2 bg-cream-50 rounded-lg border border-cream-200">
+                  <div key={t.id} className="flex items-start justify-between px-3 py-2 bg-cream-50 rounded-lg border border-cream-200">
                     <div>
                       <span className="text-sm font-body text-cream-800">{t.label}</span>
                       <span className="ml-2 text-xs font-mono text-cream-500">ID: {t.id}</span>
+                      {t.taskIds?.length > 0 && (
+                        <span className="ml-2 text-xs font-body text-cream-400">
+                          ({t.taskIds.map((tid) => TASK_LIST.find((tk) => tk.id === tid)?.label).filter(Boolean).join(', ')})
+                        </span>
+                      )}
                     </div>
                     <button onClick={() => removeHoldTemplate(t.id)}
-                      className="text-cream-400 hover:text-red-500 transition-colors">
+                      className="text-cream-400 hover:text-red-500 transition-colors shrink-0 ml-2 mt-0.5">
                       <X size={14} />
                     </button>
                   </div>
@@ -3322,15 +3425,11 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
                 <input type="text" value={ecforceBaseUrl} onChange={(e) => setEcforceBaseUrl(e.target.value)} placeholder="https://your-shop.ec-force.com"
                   className="w-full px-3 py-2.5 rounded-lg border border-cream-300 text-sm font-mono text-cream-800 placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-accent/30" />
               </div>
-              <div>
-                <label className="block text-xs font-body text-cream-600 mb-1.5">ecforce API トークン</label>
-                <input type="password" value={ecforceToken} onChange={(e) => setEcforceToken(e.target.value)} placeholder="Bearer token"
-                  className="w-full px-3 py-2.5 rounded-lg border border-cream-300 text-sm font-mono text-cream-800 placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-accent/30" />
-              </div>
-              <div>
-                <label className="block text-xs font-body text-cream-600 mb-1.5">OpenAI API キー（住所校正用）</label>
-                <input type="password" value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} placeholder="sk-..."
-                  className="w-full px-3 py-2.5 rounded-lg border border-cream-300 text-sm font-mono text-cream-800 placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-accent/30" />
+              <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-xs font-body text-blue-700 space-y-1">
+                <p className="font-semibold">APIトークン・OpenAI APIキーはサーバー側（Secret Manager）で管理されています。</p>
+                <p>変更するには Firebase CLI で設定してください：</p>
+                <code className="block font-mono bg-blue-100 rounded px-2 py-0.5">firebase functions:secrets:set ECFORCE_API_TOKEN</code>
+                <code className="block font-mono bg-blue-100 rounded px-2 py-0.5">firebase functions:secrets:set OPENAI_API_KEY</code>
               </div>
               <div>
                 <label className="block text-xs font-body text-cream-600 mb-1.5">OpenAI プロンプトID（住所校正用ストアドプロンプト）</label>
