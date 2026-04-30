@@ -281,9 +281,18 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
   const [addressService, setAddressService] = useState(null);
 
   useEffect(() => {
-    // user が確定する前は実行しない（Firestore 認証エラー回避）
-    // isEventDemo の場合は user なしでも設定ロードを実行
-    if (!user && !isEventDemo) return;
+    // イベントデモ: Firestore 認証不要でデモ用設定を直接セット
+    if (isEventDemo) {
+      setIsDemo(true);
+      setEcforceApi(new EcforceAPI({ isDemo: true }));
+      setAddressService(new AddressCorrectionService({
+        isDemo: false,
+        ...(eventDemoToken ? { demoToken: eventDemoToken } : {}),
+      }));
+      return;
+    }
+    // 通常: user が確定する前は実行しない（Firestore 認証エラー回避）
+    if (!user) return;
     async function loadSettings() {
       try {
         const [h, kw, codes, config, whOverrides, holdTpls] = await Promise.all([
@@ -297,24 +306,17 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
         setApiConfigState(config);
         setWarehouseOverrides(whOverrides?.overrides || {});
         setHoldMailTemplatesState(holdTpls);
-        // isEventDemo: ecforce は強制デモ、住所校正は本物の API を使う
-        const demo = isEventDemo ? true : !config?.ecforceBaseUrl;
+        const demo = !config?.ecforceBaseUrl;
         setIsDemo(demo);
         setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
-        // isEventDemo: demoToken ヘッダーで Firebase Auth なしに住所校正 API を呼ぶ
-        const addrDemo = isEventDemo ? false : demo;
-        setAddressService(new AddressCorrectionService({
-          isDemo: addrDemo,
-          apiConfig: config,
-          ...(isEventDemo && eventDemoToken ? { demoToken: eventDemoToken } : {}),
-        }));
+        setAddressService(new AddressCorrectionService({ isDemo: demo, apiConfig: config }));
       } catch {
         setEcforceApi(new EcforceAPI({ isDemo: true }));
         setAddressService(new AddressCorrectionService({ isDemo: true }));
       }
     }
     loadSettings();
-  }, [user]);
+  }, [user, isEventDemo]);
 
   // 過去出荷分タスクを開いたとき自動取得
   useEffect(() => {
