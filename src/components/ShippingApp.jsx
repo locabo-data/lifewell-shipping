@@ -217,7 +217,7 @@ export default function ShippingAppWrapper() {
   return <ErrorBoundary><ShippingApp /></ErrorBoundary>;
 }
 
-function ShippingApp({ isEventDemo = false }) {
+function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
   const { user, profile, logout } = useAuth();
 
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -282,7 +282,8 @@ function ShippingApp({ isEventDemo = false }) {
 
   useEffect(() => {
     // user が確定する前は実行しない（Firestore 認証エラー回避）
-    if (!user) return;
+    // isEventDemo の場合は user なしでも設定ロードを実行
+    if (!user && !isEventDemo) return;
     async function loadSettings() {
       try {
         const [h, kw, codes, config, whOverrides, holdTpls] = await Promise.all([
@@ -300,8 +301,13 @@ function ShippingApp({ isEventDemo = false }) {
         const demo = isEventDemo ? true : !config?.ecforceBaseUrl;
         setIsDemo(demo);
         setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
+        // isEventDemo: demoToken ヘッダーで Firebase Auth なしに住所校正 API を呼ぶ
         const addrDemo = isEventDemo ? false : demo;
-        setAddressService(new AddressCorrectionService({ isDemo: addrDemo, apiConfig: config }));
+        setAddressService(new AddressCorrectionService({
+          isDemo: addrDemo,
+          apiConfig: config,
+          ...(isEventDemo && eventDemoToken ? { demoToken: eventDemoToken } : {}),
+        }));
       } catch {
         setEcforceApi(new EcforceAPI({ isDemo: true }));
         setAddressService(new AddressCorrectionService({ isDemo: true }));

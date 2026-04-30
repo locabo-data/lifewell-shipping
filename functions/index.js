@@ -31,8 +31,19 @@ async function rateLimitedFetch(url, options) {
   return fetch(url, options);
 }
 
-// Firebase Auth トークン検証
+// Firebase Auth トークン検証（デモトークンによるバイパスも対応）
 async function verifyAuth(req) {
+  // イベントデモ: X-Demo-Token ヘッダーで認証バイパス
+  const demoHeader = (req.headers['x-demo-token'] || '').trim();
+  if (demoHeader) {
+    const DEMO_TOKEN = demoTokenSecret.value().trim();
+    const DEMO_EXPIRY = new Date('2026-05-02T23:59:59+09:00');
+    if (DEMO_TOKEN && demoHeader === DEMO_TOKEN && new Date() <= DEMO_EXPIRY) {
+      return { uid: 'demo-event-user', demo: true };
+    }
+    throw new Error('Unauthorized');
+  }
+  // 通常の Firebase Auth 検証
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     throw new Error('Unauthorized');

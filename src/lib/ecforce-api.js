@@ -430,6 +430,7 @@ export class AddressCorrectionService {
     this.isDemo = config.isDemo ?? true;
     this.proxyUrl = config.proxyUrl || '/api/address-correction';
     this.apiConfig = config.apiConfig || null;
+    this.demoToken = config.demoToken || null; // イベントデモ用トークン
   }
 
   async getAuthToken() {
@@ -439,20 +440,28 @@ export class AddressCorrectionService {
 
   // 1件分のリクエストを送る内部メソッド
   async _correctOne(address) {
-    const token = await this.getAuthToken();
     const requestBody = { addresses: [address] };
-    if (!token && this.apiConfig) {
-      requestBody.apiConfig = {
-        openaiKey: this.apiConfig.openaiKey,
-        openaiPromptId: this.apiConfig.openaiPromptId,
-      };
+
+    // 認証ヘッダーを決定
+    let authHeaders = {};
+    if (this.demoToken) {
+      // イベントデモ: X-Demo-Token ヘッダーで認証（Firebase Auth 不要）
+      authHeaders = { 'X-Demo-Token': this.demoToken };
+    } else {
+      const token = await this.getAuthToken();
+      if (token) {
+        authHeaders = { Authorization: `Bearer ${token}` };
+      } else if (this.apiConfig) {
+        requestBody.apiConfig = {
+          openaiKey: this.apiConfig.openaiKey,
+          openaiPromptId: this.apiConfig.openaiPromptId,
+        };
+      }
     }
+
     const res = await fetch(this.proxyUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(requestBody),
     });
     if (!res.ok) throw new Error(`住所校正エラー: ${res.status}`);

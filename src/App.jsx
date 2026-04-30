@@ -71,17 +71,10 @@ function AppContent() {
 
   useEffect(() => {
     if (!urlToken) return;
-    // Firebase auth の初期化が終わるまで待つ
-    if (loading) return;
+    // 既にデモ検証済み（ページリロード等）
+    if (demoState === 'ready') return;
 
-    // 既にサインイン済み（ページリロード等: 匿名ユーザーが持続している）
-    if (user) {
-      setIsEventDemo(true);
-      setDemoState('ready');
-      return;
-    }
-
-    // 未サインイン: サーバーでトークン検証 → 匿名認証でサインイン
+    // サーバーでトークン検証のみ（Firebase Auth 不要・匿名認証なし）
     (async () => {
       try {
         const res = await fetch(`/api/demo?token=${encodeURIComponent(urlToken)}`);
@@ -90,23 +83,15 @@ function AppContent() {
           setDemoState(body.error === 'Demo expired' ? 'expired' : 'error');
           return;
         }
-
-        if (isFirebaseConfigured) {
-          const { signInAnonymously } = await import('firebase/auth');
-          await signInAnonymously(auth);
-          // onAuthStateChanged が user をセット → effect が再実行 → ready になる
-        } else {
-          // Firebase未設定環境（ローカル開発）: 直接 ready に
-          setIsEventDemo(true);
-          setDemoState('ready');
-        }
+        setIsEventDemo(true);
+        setDemoState('ready');
       } catch (err) {
         console.error('Demo auth error:', err);
         setDemoState('error');
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlToken, loading, user]);
+  }, [urlToken]);
 
   // /demo/ パスのときの分岐
   if (urlToken) {
@@ -121,6 +106,11 @@ function AppContent() {
     }
   }
 
+  // デモ認証済みなら user なしでも ShippingApp を表示
+  if (demoState === 'ready' && isEventDemo) {
+    return <ShippingApp isEventDemo={true} eventDemoToken={urlToken} />;
+  }
+
   // 通常の認証フロー
   if (loading) {
     return <LoadingPage />;
@@ -130,7 +120,7 @@ function AppContent() {
     return <Login />;
   }
 
-  return <ShippingApp isEventDemo={isEventDemo} />;
+  return <ShippingApp isEventDemo={false} eventDemoToken={null} />;
 }
 
 export default function App() {
