@@ -1041,11 +1041,19 @@ function ShippingApp({ isEventDemo = false }) {
             ${isSelected ? 'bg-accent text-white ring-2 ring-accent/30' : ''} ${isToday && !isSelected ? 'ring-2 ring-cream-400' : ''}
             ${!isSelected ? 'hover:bg-cream-200' : ''} ${holiday || isWeekend ? 'text-red-600' : 'text-cream-900'}`}>
           <span className="block">{d}</span>
-          <span className={`block text-[9px] leading-tight mt-0.5 ${isSelected ? 'text-white/80' : 'text-cream-500'}`}>{wh.id === 'fj_logi' ? 'FJ' : '塚本'}</span>
+          <span className={`block text-[9px] leading-tight mt-0.5 ${isSelected ? 'text-white/80' : 'text-cream-500'}`}>{isEventDemo ? (wh.id === 'fj_logi' ? 'A' : 'B') : (wh.id === 'fj_logi' ? 'FJ' : '塚本')}</span>
         </button>
       );
     }
     return days;
+  };
+
+  // ======================== デモ用ヘルパー ========================
+  // isEventDemo のとき倉庫名をA/Bに置換
+  const wName = (wh) => {
+    if (!isEventDemo) return wh?.name || '';
+    const id = typeof wh === 'string' ? wh : wh?.id;
+    return id === 'fj_logi' ? 'A倉庫' : 'B倉庫';
   };
 
   // ======================== Sidebar ========================
@@ -1058,8 +1066,8 @@ function ShippingApp({ isEventDemo = false }) {
       <nav className="flex-1 p-3 space-y-1">
         {[
           { id: 'dashboard', label: 'ダッシュボード', icon: Package },
-          { id: 'history', label: 'セッション履歴', icon: History },
-          ...(profile?.role === 'admin' ? [
+          ...(!isEventDemo ? [{ id: 'history', label: 'セッション履歴', icon: History }] : []),
+          ...(profile?.role === 'admin' && !isEventDemo ? [
             { id: 'warehouse', label: '倉庫カレンダー', icon: Calendar },
             { id: 'settings', label: '設定', icon: Settings },
             { id: 'users', label: 'ユーザー管理', icon: Users },
@@ -1100,7 +1108,7 @@ function ShippingApp({ isEventDemo = false }) {
             <div className="flex items-center gap-3 text-sm font-body text-cream-600">
               <Clock size={16} />
               {session.type === 'daytime' ? '昼の部 (12:30締切)' : '夕の部 (16:00締切)'}
-              <span className="text-cream-400">|</span>{session.warehouse?.name}
+              <span className="text-cream-400">|</span>{wName(session.warehouse)}
               <span className="text-cream-400">|</span>{session.staffName}
               {session.status === 'tasks_completed' && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-heading">
@@ -1131,7 +1139,7 @@ function ShippingApp({ isEventDemo = false }) {
               <span className="text-cream-300">|</span>
               <div className="flex items-center gap-2 text-sm font-body text-cream-700">
                 <Warehouse size={15} className="text-cream-400" />
-                {session.warehouse?.name}
+                {wName(session.warehouse)}
               </div>
               <span className="text-cream-300">|</span>
               <div className="text-sm font-body text-cream-500">{session.staffName}</div>
@@ -1305,7 +1313,7 @@ function ShippingApp({ isEventDemo = false }) {
                         <div className="p-2.5 bg-green-100 rounded-lg text-green-600"><ClipboardCheck size={22} /></div>
                         <div>
                           <h3 className="font-heading font-bold text-base text-green-800">通常受注 — 出荷ステータス変更</h3>
-                          <p className="text-xs font-body text-green-600 mt-0.5">{session.warehouse?.name} / {orders.length}件</p>
+                          <p className="text-xs font-body text-green-600 mt-0.5">{wName(session.warehouse)} / {orders.length}件</p>
                         </div>
                       </div>
                       {shippingRegistered.regular && (
@@ -1437,7 +1445,9 @@ function ShippingApp({ isEventDemo = false }) {
               {Object.entries(irregularOrders).map(([warehouseId, groupOrders]) => {
                 if (!groupOrders || groupOrders.length === 0) return null;
                 const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
-                const warehouseLabel = warehouseId === 'tsukamoto' ? '塚本郵便逓送 (COOOLa)' : 'FJロジ (コマロボ)';
+                const warehouseLabel = isEventDemo
+                  ? (warehouseId === 'tsukamoto' ? 'B倉庫' : 'A倉庫')
+                  : (warehouseId === 'tsukamoto' ? '塚本郵便逓送 (COOOLa)' : 'FJロジ (コマロボ)');
                 const stateLabel = warehouseId === 'tsukamoto' ? 'cooolawait' : 'wmswait';
                 // shippingRelevant な変更のみ amber section に表示（human_state のみ変更は除外）
                 const changedIds = new Set(
@@ -1631,7 +1641,7 @@ function ShippingApp({ isEventDemo = false }) {
                 <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
                 <div className="mt-4 pt-4 border-t border-cream-100">
                   <p className="text-xs font-body text-cream-600 mb-1">選択日: {formatDate(selectedDate)}</p>
-                  <p className="text-xs font-body text-cream-500">倉庫: {getWarehouse(selectedDate, holidays, warehouseOverrides).name}</p>
+                  <p className="text-xs font-body text-cream-500">倉庫: {wName(getWarehouse(selectedDate, holidays, warehouseOverrides))}</p>
                 </div>
                 {!session && (profile?.role === 'admin' || profile?.role === 'operator') && (
                   <button onClick={() => setShowSessionModal(true)}
