@@ -43,11 +43,11 @@ export function AuthProvider({ children }) {
 
       unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
-          // イベントデモユーザー: Firestore 読み書きをスキップして固定プロフィールを返す
-          if (firebaseUser.uid === 'demo-event-user') {
+          // イベントデモユーザー（匿名認証）: Firestore 読み書きをスキップして固定プロフィールを返す
+          if (firebaseUser.isAnonymous) {
             setUser(firebaseUser);
             setProfile({
-              id: 'demo-event-user',
+              id: firebaseUser.uid,
               email: 'event-demo@lifewell.jp',
               displayName: 'イベントデモ',
               role: 'operator',

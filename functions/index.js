@@ -219,8 +219,8 @@ export const demoAuth = onRequest(
         return res.status(403).json({ error: 'Demo expired' });
       }
 
-      const customToken = await getAuth().createCustomToken('demo-event-user', { demo: true });
-      return res.json({ customToken });
+      // トークン検証OK: クライアントは匿名認証でサインインしてOK
+      return res.json({ valid: true });
     } catch (err) {
       console.error('demoAuth error:', err);
       res.status(500).json({ error: err.message });

@@ -77,7 +77,7 @@ function AppContent() {
       return;
     }
 
-    // 未サインイン: トークン検証 → カスタムトークンでサインイン
+    // 未サインイン: サーバーでトークン検証 → 匿名認証でサインイン
     setDemoState('validating');
 
     (async () => {
@@ -88,11 +88,10 @@ function AppContent() {
           setDemoState(body.error === 'Demo expired' ? 'expired' : 'error');
           return;
         }
-        const { customToken } = await res.json();
 
         if (isFirebaseConfigured) {
-          const { signInWithCustomToken } = await import('firebase/auth');
-          await signInWithCustomToken(auth, customToken);
+          const { signInAnonymously } = await import('firebase/auth');
+          await signInAnonymously(auth);
         }
         // auth の onAuthStateChanged が user をセットし再レンダリングされる
         // → 上の user チェックブランチで isEventDemo=true になる
