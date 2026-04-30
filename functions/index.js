@@ -207,8 +207,8 @@ export const demoAuth = onRequest(
   { cors: true, region: 'asia-northeast1', secrets: [demoTokenSecret] },
   async (req, res) => {
     try {
-      const token = req.query.token;
-      const DEMO_TOKEN = demoTokenSecret.value();
+      const token = (req.query.token || '').trim();
+      const DEMO_TOKEN = demoTokenSecret.value().trim();
       // JST 2026-05-02 23:59:59
       const DEMO_EXPIRY = new Date('2026-05-02T23:59:59+09:00');
 
