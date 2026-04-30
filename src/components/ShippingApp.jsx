@@ -453,7 +453,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     setLoading(false);
     setLoadingProgress(null);
     const irregMsg = irregularTotal > 0 ? ` (イレギュラー${irregularTotal}件除外)` : '';
-    showToast(`セッション開始: ${sessionType === 'daytime' ? '昼の部' : '夕の部'} / ${warehouse.name} / ${normalOrders.length}件${irregMsg}`, 'success');
+    showToast(`セッション開始: ${sessionType === 'daytime' ? '昼の部' : '夕の部'} / ${wName(warehouse)} / ${normalOrders.length}件${irregMsg}`, 'success');
   };
 
   // ---------- 受注個別ステータス ----------
@@ -2900,8 +2900,8 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
           {/* 便選択に応じてリアルタイム更新 */}
           <div className={`rounded-lg px-3 py-2.5 text-sm font-body border ${modalWarehouse.id === 'fj_logi' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
             <div className="flex items-center justify-between">
-              <span className="font-semibold">{modalWarehouse.name}</span>
-              <span className="text-xs opacity-70">{modalWarehouse.systemName}</span>
+              <span className="font-semibold">{wName(modalWarehouse)}</span>
+              {!isEventDemo && <span className="text-xs opacity-70">{modalWarehouse.systemName}</span>}
             </div>
             <div className="text-xs mt-0.5 opacity-80">
               発送日: {modalShippingDate}
