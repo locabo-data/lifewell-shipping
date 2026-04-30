@@ -43,6 +43,19 @@ export function AuthProvider({ children }) {
 
       unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
+          // イベントデモユーザー: Firestore 読み書きをスキップして固定プロフィールを返す
+          if (firebaseUser.uid === 'demo-event-user') {
+            setUser(firebaseUser);
+            setProfile({
+              id: 'demo-event-user',
+              email: 'event-demo@lifewell.jp',
+              displayName: 'イベントデモ',
+              role: 'operator',
+            });
+            setLoading(false);
+            return;
+          }
+
           setUser(firebaseUser);
           const profileRef = doc(db, 'profiles', firebaseUser.uid);
           const profileSnap = await getDoc(profileRef);

@@ -12,6 +12,10 @@
         "function": "addressCorrection"
       },
       {
+        "source": "/api/demo{,/**}",
+        "function": "demoAuth"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

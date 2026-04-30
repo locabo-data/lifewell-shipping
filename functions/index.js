@@ -12,6 +12,7 @@ import { getAuth } from 'firebase-admin/auth';
 
 const ecforceTokenSecret = defineSecret('ECFORCE_API_TOKEN');
 const openaiKeySecret    = defineSecret('OPENAI_API_KEY');
+const demoTokenSecret    = defineSecret('DEMO_TOKEN');
 
 initializeApp();
 const db = getFirestore();
@@ -193,6 +194,36 @@ export const addressCorrection = onRequest(
       res.status(err.message === 'Unauthorized' ? 401 : 500).json({
         error: err.message,
       });
+    }
+  }
+);
+
+/**
+ * イベントデモ認証
+ * GET /api/demo?token=SECRET
+ * 有効なトークン + 期限内であれば Firebase カスタムトークンを返す
+ */
+export const demoAuth = onRequest(
+  { cors: true, region: 'asia-northeast1', secrets: [demoTokenSecret] },
+  async (req, res) => {
+    try {
+      const token = req.query.token;
+      const DEMO_TOKEN = demoTokenSecret.value();
+      // JST 2026-05-02 23:59:59
+      const DEMO_EXPIRY = new Date('2026-05-02T23:59:59+09:00');
+
+      if (!DEMO_TOKEN || !token || token !== DEMO_TOKEN) {
+        return res.status(403).json({ error: 'Invalid token' });
+      }
+      if (new Date() > DEMO_EXPIRY) {
+        return res.status(403).json({ error: 'Demo expired' });
+      }
+
+      const customToken = await getAuth().createCustomToken('demo-event-user', { demo: true });
+      return res.json({ customToken });
+    } catch (err) {
+      console.error('demoAuth error:', err);
+      res.status(500).json({ error: err.message });
     }
   }
 );

@@ -217,7 +217,7 @@ export default function ShippingAppWrapper() {
   return <ErrorBoundary><ShippingApp /></ErrorBoundary>;
 }
 
-function ShippingApp() {
+function ShippingApp({ isEventDemo = false }) {
   const { user, profile, logout } = useAuth();
 
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -296,10 +296,12 @@ function ShippingApp() {
         setApiConfigState(config);
         setWarehouseOverrides(whOverrides?.overrides || {});
         setHoldMailTemplatesState(holdTpls);
-        const demo = !config?.ecforceBaseUrl;
+        // isEventDemo: ecforce は強制デモ、住所校正は本物の API を使う
+        const demo = isEventDemo ? true : !config?.ecforceBaseUrl;
         setIsDemo(demo);
         setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
-        setAddressService(new AddressCorrectionService({ isDemo: demo, apiConfig: config }));
+        const addrDemo = isEventDemo ? false : demo;
+        setAddressService(new AddressCorrectionService({ isDemo: addrDemo, apiConfig: config }));
       } catch {
         setEcforceApi(new EcforceAPI({ isDemo: true }));
         setAddressService(new AddressCorrectionService({ isDemo: true }));
@@ -330,14 +332,19 @@ function ShippingApp() {
     const shippingTargetDate = sessionType === 'evening' ? getNextDate(selectedDate) : selectedDate;
     const formattedDate = formatDate(shippingTargetDate);
 
-    // 1. ecforce API から発送予定日で受注取得
+    // 1. 受注取得（イベントデモ: 固定50件のダミーデータを使用）
     let rawOrders;
     try {
-      const api = ecforceApi || new EcforceAPI({ isDemo: true });
-      rawOrders = await api.getOrdersByShippingDate(
-        formattedDate,
-        (progress) => setLoadingProgress(progress),
-      );
+      if (isEventDemo) {
+        const { getDemoOrders } = await import('../lib/demo-data.js');
+        rawOrders = getDemoOrders();
+      } else {
+        const api = ecforceApi || new EcforceAPI({ isDemo: true });
+        rawOrders = await api.getOrdersByShippingDate(
+          formattedDate,
+          (progress) => setLoadingProgress(progress),
+        );
+      }
     } catch (err) {
       showToast(`受注取得エラー: ${err.message}`, 'error');
       setLoading(false);
