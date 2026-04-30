@@ -59,18 +59,22 @@ function DemoErrorPage() {
 
 function AppContent() {
   const { user, loading } = useAuth();
-  // 'idle' | 'validating' | 'ready' | 'expired' | 'error'
-  const [demoState, setDemoState] = useState('idle');
-  const [isEventDemo, setIsEventDemo] = useState(false);
 
-  // /demo/TOKEN パスを検出
+  // /demo/TOKEN パスを検出（レンダー前に確定させる）
   const pathMatch = window.location.pathname.match(/^\/demo\/([^/]+)$/);
   const urlToken = pathMatch?.[1] ?? null;
 
+  // 'idle' | 'validating' | 'ready' | 'expired' | 'error'
+  // デモURLの場合は初期値を 'validating' にしてLogin画面の瞬間表示を防ぐ
+  const [demoState, setDemoState] = useState(() => urlToken ? 'validating' : 'idle');
+  const [isEventDemo, setIsEventDemo] = useState(false);
+
   useEffect(() => {
     if (!urlToken) return;
+    // Firebase auth の初期化が終わるまで待つ
+    if (loading) return;
 
-    // 既にサインイン済み（ページリロード等）
+    // 既にサインイン済み（ページリロード等: 匿名ユーザーが持続している）
     if (user) {
       setIsEventDemo(true);
       setDemoState('ready');
@@ -78,8 +82,6 @@ function AppContent() {
     }
 
     // 未サインイン: サーバーでトークン検証 → 匿名認証でサインイン
-    setDemoState('validating');
-
     (async () => {
       try {
         const res = await fetch(`/api/demo?token=${encodeURIComponent(urlToken)}`);
@@ -92,16 +94,19 @@ function AppContent() {
         if (isFirebaseConfigured) {
           const { signInAnonymously } = await import('firebase/auth');
           await signInAnonymously(auth);
+          // onAuthStateChanged が user をセット → effect が再実行 → ready になる
+        } else {
+          // Firebase未設定環境（ローカル開発）: 直接 ready に
+          setIsEventDemo(true);
+          setDemoState('ready');
         }
-        // auth の onAuthStateChanged が user をセットし再レンダリングされる
-        // → 上の user チェックブランチで isEventDemo=true になる
       } catch (err) {
         console.error('Demo auth error:', err);
         setDemoState('error');
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlToken, user]);
+  }, [urlToken, loading, user]);
 
   // /demo/ パスのときの分岐
   if (urlToken) {
