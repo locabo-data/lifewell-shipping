@@ -213,8 +213,8 @@ function NameEditDialog({ order, onClose, onSave }) {
   );
 }
 
-export default function ShippingAppWrapper() {
-  return <ErrorBoundary><ShippingApp /></ErrorBoundary>;
+export default function ShippingAppWrapper({ isEventDemo = false, eventDemoToken = null }) {
+  return <ErrorBoundary><ShippingApp isEventDemo={isEventDemo} eventDemoToken={eventDemoToken} /></ErrorBoundary>;
 }
 
 function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
@@ -1651,7 +1651,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                   <p className="text-xs font-body text-cream-600 mb-1">選択日: {formatDate(selectedDate)}</p>
                   <p className="text-xs font-body text-cream-500">倉庫: {wName(getWarehouse(selectedDate, holidays, warehouseOverrides))}</p>
                 </div>
-                {!session && (profile?.role === 'admin' || profile?.role === 'operator') && (
+                {!session && (isEventDemo || profile?.role === 'admin' || profile?.role === 'operator') && (
                   <button onClick={() => setShowSessionModal(true)}
                     className="mt-4 w-full bg-accent hover:bg-accent-dark text-white font-heading font-semibold text-sm py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
                     <Plus size={16} /> 新規セッション開始
