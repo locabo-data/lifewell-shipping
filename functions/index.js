@@ -122,7 +122,7 @@ const OPENAI_ENDPOINT = 'https://api.openai.com/v1/responses';
  * body: { addresses: [{ zip, prefecture, city, street, building }] }
  */
 export const addressCorrection = onRequest(
-  { cors: true, region: 'asia-northeast1', secrets: [openaiKeySecret] },
+  { cors: true, region: 'asia-northeast1', secrets: [openaiKeySecret, demoTokenSecret] },
   async (req, res) => {
     try {
       await verifyAuth(req);
