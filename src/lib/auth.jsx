@@ -4,75 +4,50 @@ import { getInviteByEmail } from './firestore-helpers';
 
 const AuthContext = createContext(null);
 
-// DEMOユーザー（Firebase未設定時）
-const DEMO_USER = {
-  uid: 'demo-user',
-  email: 'demo@lifewell.jp',
-  displayName: 'DEMOユーザー',
-  photoURL: null,
-};
-
-const DEMO_PROFILE = {
-  id: 'demo-user',
-  email: 'demo@lifewell.jp',
-  displayName: 'DEMOユーザー',
-  photoURL: null,
-  role: 'admin',
-};
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
-    if (!isFirebaseConfigured) {
-      // Firebase未設定: DEMOモードで自動ログイン
-      setUser(DEMO_USER);
-      setProfile(DEMO_PROFILE);
-      setLoading(false);
-      return;
-    }
-
     // Firebase設定済み: 通常の認証フロー
     let unsubscribe = () => {};
 
     (async () => {
-      const { onAuthStateChanged } = await import('firebase/auth');
+      const { onAuthStateChanged, signOut } = await import('firebase/auth');
       const { doc, getDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
 
       unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
-          // イベントデモユーザー（匿名認証）: Firestore 読み書きをスキップして固定プロフィールを返す
-          if (firebaseUser.isAnonymous) {
-            setUser(firebaseUser);
-            setProfile({
-              id: firebaseUser.uid,
-              email: 'event-demo@lifewell.jp',
-              displayName: 'イベントデモ',
-              role: 'operator',
-            });
-            setLoading(false);
-            return;
-          }
-
-          setUser(firebaseUser);
           const profileRef = doc(db, 'profiles', firebaseUser.uid);
           const profileSnap = await getDoc(profileRef);
 
           if (profileSnap.exists()) {
+            // 既存プロフィール: そのまま使用
+            setUser(firebaseUser);
             setProfile({ id: profileSnap.id, ...profileSnap.data() });
           } else {
-            // 事前登録リストを確認してロールを決定
+            // 初回ログイン: 招待リストを確認
             const invite = await getInviteByEmail(firebaseUser.email);
+            if (!invite) {
+              // 招待なし → 強制サインアウト
+              await signOut(auth);
+              setAuthError(`${firebaseUser.email} はアクセスが許可されていません。`);
+              setUser(null);
+              setProfile(null);
+              setLoading(false);
+              return;
+            }
             const newProfile = {
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL,
-              role: invite?.role ?? 'viewer',
+              role: invite.role,
               createdAt: serverTimestamp(),
             };
             await setDoc(profileRef, newProfile);
+            setUser(firebaseUser);
             setProfile({ id: firebaseUser.uid, ...newProfile });
           }
         } else {
@@ -87,29 +62,26 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginWithGoogle = async () => {
-    if (!isFirebaseConfigured) {
-      setUser(DEMO_USER);
-      setProfile(DEMO_PROFILE);
-      return;
-    }
+    setAuthError(null);
     const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+        setAuthError('ログインに失敗しました。再度お試しください。');
+      }
+    }
   };
 
   const logout = async () => {
-    if (!isFirebaseConfigured) {
-      setUser(null);
-      setProfile(null);
-      return;
-    }
     const { signOut } = await import('firebase/auth');
     await signOut(auth);
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, loading, loginWithGoogle, logout }}
+      value={{ user, profile, loading, authError, loginWithGoogle, logout }}
     >
       {children}
     </AuthContext.Provider>

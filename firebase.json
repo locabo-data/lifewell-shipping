@@ -2,6 +2,13 @@
   "hosting": {
     "public": "dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "redirects": [
+      {
+        "source": "/demo{,/**}",
+        "destination": "/",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "/api/ecforce{,/**}",
@@ -12,8 +19,8 @@
         "function": "addressCorrection"
       },
       {
-        "source": "/api/demo{,/**}",
-        "function": "demoAuth"
+        "source": "/api/webhook/ecforce",
+        "function": "ecforceWebhook"
       },
       {
         "source": "**",

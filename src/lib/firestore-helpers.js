@@ -157,6 +157,16 @@ export async function setHoldMailTemplates(templates) {
   await setAppSettings('hold_mail_templates', { templates });
 }
 
+// --- キャンセル対応状況 ---
+export async function getCancelStates() {
+  const settings = await getAppSettings('cancel_states');
+  return settings?.states || [];
+}
+
+export async function setCancelStates(states) {
+  await setAppSettings('cancel_states', { states });
+}
+
 // --- Invited Users（事前登録ユーザー） ---
 export async function getInvitedUsers() {
   if (!isFirebaseConfigured) return [];
@@ -189,4 +199,22 @@ export async function removeInvitedUser(docId) {
   if (!isFirebaseConfigured) return;
   const { doc, deleteDoc } = await firestoreModule();
   await deleteDoc(doc(db, 'invited_users', docId));
+}
+
+// --- 住所校正キャッシュ (address_corrections) ---
+export async function getAddressCorrections(orderIds) {
+  if (!isFirebaseConfigured || !orderIds?.length) return {};
+  try {
+    const { doc, getDoc } = await firestoreModule();
+    const results = {};
+    await Promise.all(
+      orderIds.map(async (id) => {
+        const snap = await getDoc(doc(db, 'address_corrections', String(id)));
+        if (snap.exists()) results[String(id)] = snap.data();
+      })
+    );
+    return results;
+  } catch {
+    return {};
+  }
 }

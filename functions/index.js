@@ -10,9 +10,9 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
-const ecforceTokenSecret = defineSecret('ECFORCE_API_TOKEN');
-const openaiKeySecret    = defineSecret('OPENAI_API_KEY');
-const demoTokenSecret    = defineSecret('DEMO_TOKEN');
+const ecforceTokenSecret  = defineSecret('ECFORCE_API_TOKEN');
+const openaiKeySecret     = defineSecret('OPENAI_API_KEY');
+const webhookSecretDef    = defineSecret('ECFORCE_WEBHOOK_SECRET');
 
 initializeApp();
 const db = getFirestore();
@@ -31,19 +31,8 @@ async function rateLimitedFetch(url, options) {
   return fetch(url, options);
 }
 
-// Firebase Auth トークン検証（デモトークンによるバイパスも対応）
+// Firebase Auth トークン検証
 async function verifyAuth(req) {
-  // イベントデモ: X-Demo-Token ヘッダーで認証バイパス
-  const demoHeader = (req.headers['x-demo-token'] || '').trim();
-  if (demoHeader) {
-    const DEMO_TOKEN = demoTokenSecret.value().trim();
-    const DEMO_EXPIRY = new Date('2026-05-02T23:59:59+09:00');
-    if (DEMO_TOKEN && demoHeader === DEMO_TOKEN && new Date() <= DEMO_EXPIRY) {
-      return { uid: 'demo-event-user', demo: true };
-    }
-    throw new Error('Unauthorized');
-  }
-  // 通常の Firebase Auth 検証
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     throw new Error('Unauthorized');
@@ -116,13 +105,41 @@ export const ecforceProxy = onRequest(
 const DEFAULT_PROMPT_ID = 'pmpt_68c23271a2648190a7271a024b25f451065e59a2da9efda4';
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/responses';
 
+// ── 共通: 住所1件を校正する内部ヘルパー ──
+async function correctAddress(addr, openaiKey, promptId) {
+  const fullAddress = `${addr.zip} ${addr.prefecture}${addr.city}${addr.street} ${addr.building || ''}`.trim();
+
+  const openaiRes = await fetch(OPENAI_ENDPOINT, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: { id: promptId }, input: fullAddress }),
+  });
+
+  if (!openaiRes.ok) {
+    const errBody = await openaiRes.text();
+    throw new Error(`OpenAI error ${openaiRes.status}: ${errBody}`);
+  }
+
+  const openaiData = await openaiRes.json();
+  const messageOutput = openaiData.output?.find((o) => o.type === 'message');
+  const outputText = openaiData.output_text
+    || messageOutput?.content?.find((c) => c.type === 'output_text' || c.type === 'text')?.text;
+
+  if (!outputText) throw new Error('No output from OpenAI');
+
+  let jsonStr = outputText.trim();
+  const block = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (block) jsonStr = block[1].trim();
+  return JSON.parse(jsonStr);
+}
+
 /**
  * OpenAI Responses API プロキシ（住所校正用・ストアドプロンプト対応）
  * POST /addressCorrection
  * body: { addresses: [{ zip, prefecture, city, street, building }] }
  */
 export const addressCorrection = onRequest(
-  { cors: true, region: 'asia-northeast1', secrets: [openaiKeySecret, demoTokenSecret] },
+  { cors: true, region: 'asia-northeast1', secrets: [openaiKeySecret] },
   async (req, res) => {
     try {
       await verifyAuth(req);
@@ -144,58 +161,13 @@ export const addressCorrection = onRequest(
       const results = [];
 
       for (const addr of addresses) {
-        const fullAddress = `${addr.zip} ${addr.prefecture}${addr.city}${addr.street} ${addr.building || ''}`.trim();
-
         try {
-          const openaiRes = await fetch(OPENAI_ENDPOINT, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${openaiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              prompt: { id: promptId },
-              input: fullAddress,
-            }),
-          });
-
-          if (!openaiRes.ok) {
-            const errBody = await openaiRes.text();
-            console.error(`OpenAI error for "${fullAddress}":`, errBody);
-            results.push({
-              original: addr,
-              error: `OpenAI API error: ${openaiRes.status}`,
-            });
-            continue;
-          }
-
-          const openaiData = await openaiRes.json();
-
-          // Reasoning モデルは output[0] が reasoning ステップ、output[1]以降が message
-          const messageOutput = openaiData.output?.find((o) => o.type === 'message');
-          const outputText = openaiData.output_text
-            || messageOutput?.content?.find((c) => c.type === 'output_text' || c.type === 'text')?.text
-            || null;
-
-          if (!outputText) {
-            results.push({
-              original: addr,
-              error: 'No output from OpenAI',
-            });
-            continue;
-          }
-
-          const correction = JSON.parse(outputText);
-          results.push({
-            original: addr,
-            correction,
-          });
+          const correction = await correctAddress(addr, openaiKey, promptId);
+          results.push({ original: addr, correction });
         } catch (addrErr) {
+          const fullAddress = `${addr.zip} ${addr.prefecture}${addr.city}${addr.street} ${addr.building || ''}`.trim();
           console.error(`Address correction failed for "${fullAddress}":`, addrErr);
-          results.push({
-            original: addr,
-            error: addrErr.message,
-          });
+          results.push({ original: addr, error: addrErr.message });
         }
       }
 
@@ -210,31 +182,98 @@ export const addressCorrection = onRequest(
 );
 
 /**
- * イベントデモ認証
- * GET /api/demo?token=SECRET
- * 有効なトークン + 期限内であれば Firebase カスタムトークンを返す
+ * ecforce webhook 受け取り → 住所校正 → Firestore 保存
+ * POST /api/webhook/ecforce
+ *
+ * 対象フィルター:
+ *   - product_name に「定期」を含む
+ *   - product_name が「【」で始まる
+ *   - product_name に「★」を含まない
+ *   - times === "1"（初回受注）
  */
-export const demoAuth = onRequest(
-  { cors: true, region: 'asia-northeast1', secrets: [demoTokenSecret] },
+export const ecforceWebhook = onRequest(
+  { cors: false, region: 'asia-northeast1', secrets: [openaiKeySecret, webhookSecretDef] },
   async (req, res) => {
     try {
-      const token = (req.query.token || '').trim();
-      const DEMO_TOKEN = demoTokenSecret.value().trim();
-      // JST 2026-05-02 23:59:59
-      const DEMO_EXPIRY = new Date('2026-05-02T23:59:59+09:00');
-
-      if (!DEMO_TOKEN || !token || token !== DEMO_TOKEN) {
-        return res.status(403).json({ error: 'Invalid token' });
-      }
-      if (new Date() > DEMO_EXPIRY) {
-        return res.status(403).json({ error: 'Demo expired' });
+      // ── シークレット検証（URLクエリパラメータ ?secret=xxx）──
+      const incoming = req.query.secret ?? '';
+      if (!incoming || incoming !== webhookSecretDef.value()) {
+        console.warn('[ecforceWebhook] invalid secret');
+        return res.status(403).json({ error: 'Forbidden' });
       }
 
-      // トークン検証OK: クライアントは匿名認証でサインインしてOK
-      return res.json({ valid: true });
+      const payload = req.body;
+      const { order_id, order_number, product_name, times, zip01, zip02, prefecture_name, addr01, addr02, addr03 } = payload;
+
+      if (!order_id) {
+        return res.status(400).json({ error: 'Missing order_id' });
+      }
+
+      // ── フィルター: 対象外はスキップ ──
+      const productName = product_name ?? '';
+      const shouldProcess =
+        productName.includes('定期') &&
+        productName.startsWith('【') &&
+        !productName.includes('★') &&
+        String(times) === '1';
+
+      if (!shouldProcess) {
+        console.log(`[ecforceWebhook] skipped order ${order_id}: filter not matched (product="${productName}", times=${times})`);
+        return res.json({ status: 'skipped', order_id });
+      }
+
+      // ── べき等: 既に校正済みなら何もしない ──
+      const docRef = db.collection('address_corrections').doc(String(order_id));
+      const existing = await docRef.get();
+      if (existing.exists) {
+        console.log(`[ecforceWebhook] already corrected: order ${order_id}`);
+        return res.json({ status: 'already_corrected', order_id });
+      }
+
+      // ── 住所を内部フォーマットに変換 ──
+      const addr = {
+        zip:        `${zip01 ?? ''}${zip02 ?? ''}`,
+        prefecture: prefecture_name ?? '',
+        city:       addr01 ?? '',
+        street:     addr02 ?? '',
+        building:   addr03 ?? '',
+      };
+
+      // ── OpenAI で住所校正 ──
+      const config    = await getApiConfig();
+      const openaiKey = openaiKeySecret.value();
+      const promptId  = config.openaiPromptId || DEFAULT_PROMPT_ID;
+
+      let correction = null;
+      let errorMsg   = null;
+      try {
+        correction = await correctAddress(addr, openaiKey, promptId);
+        console.log(`[ecforceWebhook] corrected order ${order_id}:`, correction);
+      } catch (e) {
+        errorMsg = e.message;
+        console.error(`[ecforceWebhook] correction failed for order ${order_id}:`, e);
+      }
+
+      // ── Firestore に保存 ──
+      const now = new Date();
+      const expireAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7日後に自動削除
+      await docRef.set({
+        order_id:          String(order_id),
+        order_number:      order_number ?? null,
+        original_address:  addr,
+        corrected_address: correction ?? null,
+        correction_source: 'webhook',
+        corrected_at:      now,
+        created_at:        now,
+        expireAt,          // Firestore TTL: 7日後に自動削除
+        status:            'pending',  // 作業者が承認/却下する
+        error:             errorMsg ?? null,
+      });
+
+      return res.json({ status: 'ok', order_id, corrected: !!correction });
     } catch (err) {
-      console.error('demoAuth error:', err);
-      res.status(500).json({ error: err.message });
+      console.error('[ecforceWebhook] unexpected error:', err);
+      return res.status(500).json({ error: err.message });
     }
   }
 );
