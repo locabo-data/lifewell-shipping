@@ -4,6 +4,7 @@ import {
   BookOpen,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleHelp,
   Clock3,
@@ -29,73 +30,128 @@ const TASKS = [
     number: '01',
     title: '過去出荷分確認',
     icon: Clock3,
-    target: '出荷対象日の15日前〜前日の未出荷受注',
-    system: '過去分のうち、出荷可能な状態の受注を抽出します。',
-    operator: '発送日を当日に変更し、今回の出荷対象へ追加します。',
+    purpose: '発送予定日を過ぎたまま未出荷になっている受注を見つけ、出荷漏れを防ぎます。',
+    target: '出荷対象日の15日前〜前日で、state=complete、決済がauthedまたはcredit_exam_completed、shipped_atが空、tbc=falseの受注。',
+    check: '受注ID、現在の発送予定日、決済状態、出荷済みでないこと、要対応になっていないこと。',
+    steps: [
+      '対象受注の詳細を開き、出荷してよい受注か確認します。',
+      '今回出荷する受注は「当日に変更」を押します。',
+      '発送予定日がセッションの出荷対象日に変わり、通常出荷リストへ追加されたことを確認します。',
+    ],
+    done: '対象をすべて確認し、今回出荷する受注が通常出荷リストへ追加されていれば完了です。',
   },
   {
     number: '02',
     title: '決済エラー確認',
     icon: CreditCard,
-    target: '与信失敗・売上失敗などの決済エラー',
-    system: 'payment_stateから決済上の問題がある受注を検出します。',
-    operator: '保留・定期停止・顧客連絡など、必要な対応を行います。',
+    purpose: '決済が完了していない受注を誤って出荷しないための確認です。',
+    target: 'payment_stateが登録失敗、売上失敗、与信処理中・保留・失敗、出荷報告失敗、取消失敗、更新失敗、failed、auth_failedのいずれか。',
+    check: '受注ID、氏名、金額、支払方法、決済状態、画面に表示される最新のエラーメッセージ。',
+    steps: [
+      'ecforceの受注詳細を開き、決済エラーの内容と現在状態を確認します。',
+      '再決済や顧客対応を待つ場合は「保留処理」を選びます。必要に応じて要対応、定期停止、案内メールを設定します。',
+      '出荷しない受注は「キャンセル」を選び、決済取消・定期取消・案内メールの内容を確認して実行します。',
+    ],
+    done: 'すべての対象受注について、保留またはキャンセルなどの対応方針が確定していれば完了です。',
   },
   {
     number: '03',
     title: 'NP別送確認',
     icon: FileSearch,
-    target: '支払方法ID 57 / 24 / 61',
-    system: 'NP後払いの請求書別送対象を一覧にします。',
-    operator: '案内内容と受注内容を確認し、問題なければ完了します。',
+    purpose: 'NP後払いの請求書が商品と別に届く受注を確認し、案内漏れを防ぎます。',
+    target: 'payment_method_idが57、24、61のいずれかである受注。',
+    check: '受注ID、メールアドレス、支払方法ID、合計金額、定期受注の有無。',
+    steps: [
+      '受注内容と支払方法がNP後払いであることを確認します。',
+      '顧客への案内が必要な場合は、使用するメール・SMSテンプレートを確認します。',
+      '「SMS + 要対応」から案内と要対応設定を行い、必要に応じて定期受注を停止します。',
+    ],
+    done: '対象受注の案内要否を確認し、必要な案内と要対応設定が完了していれば完了です。',
   },
   {
     number: '04',
     title: 'テスト注文・氏名不備',
     icon: UserRoundSearch,
-    target: '初回注文（times ≤ 1）',
-    system: 'テスト語、数字・記号だけの氏名、不自然な文字列などを検出します。',
-    operator: 'テスト注文は取消し、氏名不備は正しい氏名へ修正します。',
+    purpose: 'テスト注文や入力ミスのある氏名を見つけ、誤出荷や送り状エラーを防ぎます。',
+    target: '初回注文のうち、氏名が空・長さ不正・テスト語を含む・数字や記号だけ・絵文字を含む・同じ文字が5回以上続くなどの受注。O-PLUX詳細に振り仮名不備がある受注も含みます。',
+    check: '受注ID、氏名・フリガナ、判定理由タグ、金額、受注日時、O-PLUXの審査詳細。',
+    steps: [
+      '判定理由とecforceの顧客情報を見比べ、テスト注文か入力ミスかを判断します。',
+      '入力ミスの場合は「氏名を修正」または「振り仮名を修正」から、正しい姓名・フリガナへ更新します。',
+      'テスト注文の場合は「テスト受注キャンセル」から、受注・決済・定期受注の取消内容を確認して実行します。',
+    ],
+    done: '氏名不備が修正済み、またはテスト注文がキャンセル済みになっていれば完了です。',
   },
   {
     number: '05',
     title: '重複注文確認',
     icon: Users,
-    target: '同一セッション内で氏名または住所が一致',
-    system: '全角半角・空白・ハイフンをそろえて重複候補を探します。',
-    operator: '顧客へ確認し、重複と判断した受注を取消します。',
+    purpose: '同じ顧客が誤って複数回注文した可能性を確認し、二重出荷を防ぎます。',
+    target: '同一セッション内で、正規化後の配送先住所または配送先氏名が一致する受注が2件以上ある場合。住所一致が氏名一致より優先されます。',
+    check: '同じグループ内の氏名、住所、支払方法、商品、受注履歴。注文日時や数量の違いもecforceで確認します。',
+    steps: [
+      '重複グループ内の受注を比較し、商品・数量・注文日時が意図した注文か確認します。',
+      '「管理画面」から顧客の過去受注を開き、必要に応じて顧客へ確認します。',
+      '重複と確定した場合のみ、残す受注を決めて不要な受注をキャンセルします。',
+    ],
+    done: '各グループについて、両方出荷するか片方を取消すかの判断が完了していれば完了です。',
   },
   {
     number: '06',
     title: '単品注文確認',
     icon: ShoppingBag,
-    target: '設定済みの商品コードを含む受注',
-    system: '対象商品を指定された倉庫のイレギュラー出荷へ分けます。',
-    operator: '商品と振分先倉庫を確認して処理を進めます。',
+    purpose: '通常の定期商品と出荷方法が異なる商品を確認し、誤った倉庫・出荷フローへ送らないための確認です。',
+    target: '設定画面のイレギュラー商品コードに登録されたSKUを1つでも含む受注。設定が空の場合の既定コードはEA00、WB00、SU00です。',
+    check: '受注ID、顧客ID、氏名、郵便番号、住所、受注内の全商品コード、振分先倉庫。',
+    steps: [
+      '検出された商品コードが、現在のイレギュラー商品設定と一致していることを確認します。',
+      '商品ごとの出荷方法と振分先倉庫を確認します。',
+      '出荷不要・誤注文と判断した場合だけ「キャンセル」を実行します。出荷する場合は指定倉庫のグループに残します。',
+    ],
+    done: '対象商品の出荷可否と倉庫が確認でき、必要なキャンセルが完了していれば完了です。',
   },
   {
     number: '07',
     title: '購入URL確認',
     icon: Link,
-    target: 'times=1 かつURLにdefo / testを含む',
-    system: 'テスト用・確認用URLから入った初回注文を検出します。',
-    operator: '本番出荷が必要か確認し、不要であれば取消します。',
+    purpose: 'テスト用・確認用ページから作成された受注を本番出荷しないように確認します。',
+    target: 'timesが1で、purchase_urlまたはurlに「defo」か「test」を含む受注。大文字・小文字は区別しません。',
+    check: '受注ID、購入URLの該当文字、顧客ID、金額、受注日時、ecforce上の受注内容。',
+    steps: [
+      '表示された購入URLを確認し、社内テスト・確認用の注文か判断します。',
+      '判断できない場合は受注日時、顧客、商品、実施中のテスト内容を確認します。',
+      '本番出荷が不要な場合は「キャンセル」から受注・決済・定期受注の取消を実行します。',
+    ],
+    done: '各対象受注について、本番注文かテスト注文かの判断と必要な取消が完了していれば完了です。',
   },
   {
     number: '08',
     title: '住所校正',
     icon: MapPin,
-    target: '初回注文（times ≤ 1）',
-    system: '未校正の住所をAIで確認し、OK・Review・NGに分類します。',
-    operator: '変更内容を目視確認してからecforceへ反映します。',
+    purpose: '配送に使えない住所や表記ゆれを出荷前に見つけ、返送・配送遅延を防ぎます。',
+    target: '初回注文。保存済みの校正結果があれば再利用し、結果がない住所だけをAIで校正します。',
+    check: '元の郵便番号・住所、校正後住所、変更箇所、判定スコア、AIの理由。変更がある受注は自動選択されます。',
+    steps: [
+      'OKは元住所と校正後住所を比較し、意図しない変更がないか確認します。',
+      'Reviewは補完・推定内容を必ず目視確認します。NGは配送リスクが高いため、ecforceや顧客確認で正しい住所を確定します。',
+      '反映する受注だけを選択し、「ecforceに書き戻す」を実行します。',
+    ],
+    done: '必要な住所が確認・修正され、選択した受注のecforce反映が完了していれば完了です。',
+    note: 'addr01はcity + town、addr02は番地 + 半角スペース + 建物です。都道府県は現在値を維持し、prefecture_idは原則送信しません。',
   },
   {
     number: '09',
     title: 'O-PLUX審査確認',
     icon: ShieldCheck,
-    target: 'times=1、REVIEWまたは詳細ありのOK',
-    system: '確認が必要な審査結果と審査理由を表示します。',
-    operator: '理由を読み、出荷・保留・取消のいずれかを判断します。',
+    purpose: '不正利用などの審査情報を確認し、リスクのある初回注文をそのまま出荷しないための確認です。',
+    target: 'timesが1で、審査結果がREVIEW、または審査詳細があるOKの受注。NGはこのタスクの対象外です。OKは設定済みキーワードに該当する詳細が優先表示されます。',
+    check: '受注番号、顧客ID、配送先氏名・住所、審査結果、審査詳細、赤く強調された登録キーワード、住所校正の反映有無。',
+    steps: [
+      'REVIEWは審査詳細と強調キーワードを読み、顧客・住所・注文内容を確認します。',
+      '問題がなければ出荷対象に残します。追加確認が必要な場合は「SMS + 保留処理」を実行します。',
+      '不正利用や出荷不可と判断した場合は「キャンセル」を実行します。',
+    ],
+    done: '対象受注ごとに、出荷・保留・キャンセルの判断と必要な処理が完了していれば完了です。',
   },
 ];
 
@@ -170,12 +226,12 @@ function Section({ title, description, children }) {
   );
 }
 
-function Conclusion({ children }) {
+function KeyPoint({ title = '判断のポイント', children }) {
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
       <CircleHelp size={19} className="text-accent shrink-0 mt-0.5" />
       <div>
-        <p className="font-heading font-bold text-sm text-blue-900">まず結論</p>
+        <p className="font-heading font-bold text-sm text-blue-900">{title}</p>
         <div className="text-sm text-blue-800 leading-7 mt-1">{children}</div>
       </div>
     </div>
@@ -248,9 +304,9 @@ function OverviewPage({ onSelect }) {
 
   return (
     <div className="space-y-4">
-      <Conclusion>
+      <KeyPoint title="このページの見方">
         画面上から順番に処理し、9つのタスクがすべて「完了」または「スキップ」になると出荷登録へ進めます。
-      </Conclusion>
+      </KeyPoint>
       <Section title="出荷業務の流れ" description="各段階でシステムと担当者が行うこと">
         {steps.map((step, index) => (
           <ProcessRow
@@ -284,9 +340,9 @@ function OverviewPage({ onSelect }) {
 function CalendarPage({ isAdmin, onNavigate }) {
   return (
     <div className="space-y-4">
-      <Conclusion>
+      <KeyPoint>
         昼の部は選択日、夕の部は選択日の翌日が出荷対象日です。倉庫は手動指定を最優先し、指定がなければ曜日・祝日で決まります。
-      </Conclusion>
+      </KeyPoint>
       <Section title="1. 出荷対象日を決める">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Formula label="昼の部">出荷対象日 = 選択した日</Formula>
@@ -328,9 +384,9 @@ function CalendarPage({ isAdmin, onNavigate }) {
 function OrdersPage({ isAdmin, onNavigate }) {
   return (
     <div className="space-y-4">
-      <Conclusion>
+      <KeyPoint>
         対象日の受注状態がcompleteの受注を取得し、要対応受注とイレギュラー商品を除いたものが通常の確認対象です。
-      </Conclusion>
+      </KeyPoint>
       <Section title="受注が画面に表示されるまで">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
           {[
@@ -368,37 +424,79 @@ function OrdersPage({ isAdmin, onNavigate }) {
 }
 
 function TasksPage() {
+  const [expandedTask, setExpandedTask] = useState('01');
+
   return (
     <div className="space-y-4">
-      <Conclusion>
-        各タスクは独立して判定されます。同じ受注が複数のタスクに表示されても異常ではありません。
-      </Conclusion>
+      <KeyPoint title="確認タスクの見方">
+        各タスクは独立して判定されるため、同じ受注が複数のタスクに表示されることがあります。
+        タスク名を押すと、抽出条件から完了の目安まで確認できます。
+      </KeyPoint>
       <div className="space-y-3">
         {TASKS.map((task) => {
           const Icon = task.icon;
+          const expanded = expandedTask === task.number;
           return (
             <article key={task.number} className="bg-white rounded-xl border border-cream-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 flex items-center gap-3 border-b border-cream-100">
-                <div className="w-9 h-9 rounded-lg bg-cream-100 text-cream-600 flex items-center justify-center">
+              <button
+                onClick={() => setExpandedTask(expanded ? null : task.number)}
+                className="w-full px-5 py-4 flex items-start gap-3 text-left hover:bg-cream-50 transition-colors"
+              >
+                <div className="w-9 h-9 rounded-lg bg-cream-100 text-cream-600 flex items-center justify-center shrink-0">
                   <Icon size={18} />
                 </div>
-                <span className="text-xs font-mono text-cream-400">{task.number}</span>
-                <h3 className="font-heading font-bold text-sm text-cream-900">{task.title}</h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-cream-100">
-                <div className="p-4">
-                  <p className="text-[10px] font-heading font-bold text-cream-400 mb-2">対象になる受注</p>
-                  <p className="text-xs text-cream-700 leading-5">{task.target}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-cream-400">{task.number}</span>
+                    <h3 className="font-heading font-bold text-sm text-cream-900">{task.title}</h3>
+                  </div>
+                  <p className="text-xs text-cream-500 leading-5 mt-1.5">{task.purpose}</p>
                 </div>
-                <div className="p-4">
-                  <p className="text-[10px] font-heading font-bold text-cream-400 mb-2">システムがすること</p>
-                  <p className="text-xs text-cream-700 leading-5">{task.system}</p>
+                <ChevronDown size={17} className={`text-cream-400 shrink-0 mt-2 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              </button>
+
+              {expanded && (
+                <div className="border-t border-cream-100">
+                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-cream-100">
+                    <div className="p-5">
+                      <p className="text-[10px] font-heading font-bold text-cream-400 mb-2">システムが抽出する条件</p>
+                      <p className="text-xs text-cream-700 leading-6">{task.target}</p>
+                    </div>
+                    <div className="p-5">
+                      <p className="text-[10px] font-heading font-bold text-cream-400 mb-2">画面で確認する項目</p>
+                      <p className="text-xs text-cream-700 leading-6">{task.check}</p>
+                    </div>
+                  </div>
+                  <div className="p-5 border-t border-cream-100 bg-blue-50/40">
+                    <p className="text-[10px] font-heading font-bold text-blue-500 mb-3">担当者の対応手順</p>
+                    <ol className="space-y-2.5">
+                      {task.steps.map((step, index) => (
+                        <li key={step} className="flex gap-3 text-xs text-blue-900 leading-6">
+                          <span className="w-5 h-5 rounded-full bg-white border border-blue-200 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            {index + 1}
+                          </span>
+                          <span>{step}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div className="px-5 py-4 border-t border-cream-100">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-heading font-bold text-green-700 mb-1">完了の目安</p>
+                        <p className="text-xs text-cream-700 leading-5">{task.done}</p>
+                      </div>
+                    </div>
+                    {task.note && (
+                      <div className="mt-3 pt-3 border-t border-cream-100 flex items-start gap-2">
+                        <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-800 leading-5">{task.note}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="p-4 bg-blue-50/50">
-                  <p className="text-[10px] font-heading font-bold text-blue-500 mb-2">担当者がすること</p>
-                  <p className="text-xs text-blue-900 leading-5">{task.operator}</p>
-                </div>
-              </div>
+              )}
             </article>
           );
         })}
@@ -410,9 +508,9 @@ function TasksPage() {
 function AddressPage() {
   return (
     <div className="space-y-4">
-      <Conclusion>
+      <KeyPoint>
         OKはそのまま進め、ReviewとNGは必ず目視確認します。住所を反映するときも、都道府県の値は変更しません。
-      </Conclusion>
+      </KeyPoint>
       <Section title="AI判定の見方">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="rounded-lg bg-green-50 border border-green-200 p-4"><strong className="text-green-700">OK</strong><p className="text-xs text-green-700 mt-2">配送上の問題なし</p></div>
@@ -443,9 +541,9 @@ function AddressPage() {
 function ShippingPage() {
   return (
     <div className="space-y-4">
-      <Conclusion>
+      <KeyPoint>
         9タスク完了後に差分を確認し、現在も出荷可能な状態の受注だけを登録します。差分がある受注は自動的に出荷選択から外れます。
-      </Conclusion>
+      </KeyPoint>
       <Section title="1. 作業中の変更を確認する" description="次の値をセッション開始時と比較します">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {['state', 'payment_state', 'tbc', 'human_state'].map((field) => (
@@ -487,9 +585,9 @@ function RecoveryPage() {
   ];
   return (
     <div className="space-y-4">
-      <Conclusion>
+      <KeyPoint>
         一時的なAPIエラーはシステムが自動で再試行します。最終的に失敗した受注だけを確認してください。
-      </Conclusion>
+      </KeyPoint>
       <Section title="システムが自動で再試行する回数">
         <div className="divide-y divide-cream-100">
           {retries.map(([name, count, detail]) => (
