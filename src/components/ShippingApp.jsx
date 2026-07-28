@@ -23,6 +23,7 @@ import {
   filterTbcFalse, normalizeOrder, classifyByIrregular, judgePersonName,
 } from '../lib/ecforce-api';
 import AdminPanel from '../pages/AdminPanel';
+import ShippingRules from '../pages/ShippingRules';
 
 // ======================== Error Boundary ========================
 class ErrorBoundary extends Component {
@@ -1277,6 +1278,7 @@ function ShippingApp() {
         {[
           { id: 'dashboard', label: 'ダッシュボード', icon: Package },
           { id: 'history', label: 'セッション履歴', icon: History },
+          { id: 'rules', label: '出荷ルール', icon: FileText },
           ...(profile?.role === 'admin' ? [
             { id: 'warehouse', label: '倉庫カレンダー', icon: Calendar },
             { id: 'settings', label: '設定', icon: Settings },
@@ -3221,6 +3223,7 @@ function ShippingApp() {
       {currentPage === 'history' && renderHistory()}
       {currentPage === 'settings' && renderSettings()}
       {currentPage === 'users' && <div className="flex-1 p-6 overflow-auto"><AdminPanel /></div>}
+      {currentPage === 'rules' && <ShippingRules onNavigate={setCurrentPage} />}
       {renderSessionModal()}
       {loading && <LoadingSpinner message={loading === true ? '処理中...' : loading} />}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
