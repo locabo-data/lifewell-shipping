@@ -126,7 +126,7 @@ const TASKS = [
   },
   {
     number: '08',
-    title: '住所校正・反映ルール',
+    title: '住所校正',
     icon: MapPin,
     purpose: '配送に使えない住所や表記ゆれを出荷前に見つけ、返送・配送遅延を防ぎます。',
     target: '通常受注のうち、timesが1以下の受注（times未取得時は0扱い）。保存済みの校正結果があれば再利用し、結果がない住所だけをAIで校正します。',
@@ -190,7 +190,7 @@ const CATEGORIES = [
   },
   {
     id: 'address',
-    title: '住所校正',
+    title: '住所校正・反映ルール',
     short: 'AI判定と書き戻し',
     description: '校正結果の見方とecforceへ反映する住所',
     keywords: '住所 AI OK Review NG addr01 addr02',
