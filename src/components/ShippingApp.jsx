@@ -21,6 +21,7 @@ import {
   filterTbcFalse, normalizeOrder, classifyByIrregular, judgePersonName,
 } from '../lib/ecforce-api';
 import AdminPanel from '../pages/AdminPanel';
+import ShippingRules from '../pages/ShippingRules';
 
 // ======================== Error Boundary ========================
 class ErrorBoundary extends Component {
@@ -1075,6 +1076,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
         {[
           { id: 'dashboard', label: 'ダッシュボード', icon: Package },
           ...(!isEventDemo ? [{ id: 'history', label: 'セッション履歴', icon: History }] : []),
+          { id: 'rules', label: '出荷ルール', icon: FileText },
           ...(profile?.role === 'admin' && !isEventDemo ? [
             { id: 'warehouse', label: '倉庫カレンダー', icon: Calendar },
             { id: 'settings', label: '設定', icon: Settings },
@@ -2948,6 +2950,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
       {currentPage === 'taskDetail' && renderTaskDetail()}
       {currentPage === 'warehouse' && profile?.role === 'admin' && renderWarehouseCalendar()}
       {currentPage === 'history' && renderHistory()}
+      {currentPage === 'rules' && <ShippingRules onNavigate={setCurrentPage} />}
       {currentPage === 'settings' && renderSettings()}
       {currentPage === 'users' && <div className="flex-1 p-6 overflow-auto"><AdminPanel /></div>}
       {renderSessionModal()}
