@@ -29,84 +29,84 @@ import { useAuth } from '../lib/auth';
 const TASKS = [
   {
     number: '01',
-    title: '驕主悉蜃ｺ闕ｷ蛻・｢ｺ隱・,
+    title: '過去出荷分確認',
     icon: History,
     tone: 'amber',
-    condition: '蜃ｺ闕ｷ蟇ｾ雎｡譌･縺ｮ15譌･蜑阪懷燕譌･',
-    detail: 'state=complete縲∵ｱｺ貂医′莉ｮ螢ｲ荳翫∪縺溘・荳惹ｿ｡蟇ｩ譟ｻ螳御ｺ・∵悴蜃ｺ闕ｷ縲∬ｦ∝ｯｾ蠢懊ヵ繝ｩ繧ｰ縺ｪ縺励・蜿玲ｳｨ縲・,
-    action: '逋ｺ騾∵律繧貞ｽ捺律縺ｫ螟画峩縺励・壼ｸｸ蜃ｺ闕ｷ繝ｪ繧ｹ繝医∈霑ｽ蜉縺励∪縺吶・,
+    condition: '出荷対象日の15日前〜前日',
+    detail: 'state=complete、決済が仮売上または与信審査完了、未出荷、要対応フラグなしの受注。',
+    action: '発送日を当日に変更し、通常出荷リストへ追加します。',
   },
   {
     number: '02',
-    title: '豎ｺ貂医お繝ｩ繝ｼ遒ｺ隱・,
+    title: '決済エラー確認',
     icon: CreditCard,
     tone: 'red',
-    condition: '豎ｺ貂医お繝ｩ繝ｼ邉ｻ縺ｮpayment_state',
-    detail: '荳惹ｿ｡螟ｱ謨励・螢ｲ荳雁､ｱ謨励・豎ｺ貂医お繝ｩ繝ｼ繝ｻ蜃ｦ逅・､ｱ謨励↑縺ｩ10遞ｮ鬘槭・迥ｶ諷九ｒ讀懷・縺励∪縺吶・,
-    action: '菫晉蕗縲∝ｮ壽悄蛛懈ｭ｢縲∬ｦ∝ｯｾ蠢懆ｨｭ螳壹・｡ｧ螳｢騾｣邨｡繧定｡後＞縺ｾ縺吶・,
+    condition: '決済エラー系のpayment_state',
+    detail: '与信失敗・売上失敗・決済エラー・処理失敗など10種類の状態を検出します。',
+    action: '保留、定期停止、要対応設定、顧客連絡を行います。',
   },
   {
     number: '03',
-    title: 'NP蛻･騾∫｢ｺ隱・,
+    title: 'NP別送確認',
     icon: FileSearch,
     tone: 'blue',
-    condition: '謾ｯ謇墓婿豕肘D 57 / 24 / 61',
-    detail: 'NP蠕梧鴛縺・・隲区ｱよ嶌蛻･騾∝ｯｾ雎｡繧剃ｸ隕ｧ縺ｫ縺励∪縺吶・,
-    action: '蠢・ｦ√↑譯亥・縺ｨ蜀・ｮｹ遒ｺ隱阪ｒ陦後＞縲∝撫鬘後↑縺代ｌ縺ｰ螳御ｺ・＠縺ｾ縺吶・,
+    condition: '支払方法ID 57 / 24 / 61',
+    detail: 'NP後払いの請求書別送対象を一覧にします。',
+    action: '必要な案内と内容確認を行い、問題なければ完了します。',
   },
   {
     number: '04',
-    title: '繝・せ繝域ｳｨ譁・・豌丞錐荳榊ｙ',
+    title: 'テスト注文・氏名不備',
     icon: UserRoundSearch,
     tone: 'violet',
-    condition: '蛻晏屓豕ｨ譁・ｼ・imes 竕､ 1・・,
-    detail: '繝・せ繝郁ｪ槭∵焚蟄励・險伜捷縺ｮ縺ｿ縲∵ｬ關ｽ縲∽ｸ崎・辟ｶ縺ｪ譁・ｭ怜・縲＾-PLUX縺ｮ繝輔Μ繧ｬ繝贋ｸ榊ｙ繧呈､懷・縺励∪縺吶・,
-    action: '繝・せ繝域ｳｨ譁・・繧ｭ繝｣繝ｳ繧ｻ繝ｫ縺励∵ｰ丞錐繝溘せ縺ｯ豁｣縺励＞豌丞錐縺ｸ菫ｮ豁｣縺励∪縺吶・,
+    condition: '初回注文（times ≤ 1）',
+    detail: 'テスト語、数字・記号のみ、欠落、不自然な文字列、O-PLUXのフリガナ不備を検出します。',
+    action: 'テスト注文はキャンセルし、氏名ミスは正しい氏名へ修正します。',
   },
   {
     number: '05',
-    title: '驥崎､・ｳｨ譁・｢ｺ隱・,
+    title: '重複注文確認',
     icon: Users,
     tone: 'orange',
-    condition: '蜷御ｸ繧ｻ繝・す繝ｧ繝ｳ蜀・・豌丞錐縺ｾ縺溘・菴乗園縺御ｸ閾ｴ',
-    detail: '蜈ｨ隗貞濠隗偵・遨ｺ逋ｽ繝ｻ繝上う繝輔Φ繧呈ｭ｣隕丞喧縺励※豈碑ｼ・＠縲∽ｽ乗園荳閾ｴ繧貞━蜈医＠縺ｾ縺吶・,
-    action: '鬘ｧ螳｢縺ｫ遒ｺ隱阪＠縲・㍾隍・→遒ｺ螳壹＠縺溷女豕ｨ繧偵く繝｣繝ｳ繧ｻ繝ｫ縺励∪縺吶・,
+    condition: '同一セッション内の氏名または住所が一致',
+    detail: '全角半角・空白・ハイフンを正規化して比較し、住所一致を優先します。',
+    action: '顧客に確認し、重複と確定した受注をキャンセルします。',
   },
   {
     number: '06',
-    title: '蜊伜刀豕ｨ譁・｢ｺ隱・,
+    title: '単品注文確認',
     icon: ShoppingBag,
     tone: 'teal',
-    condition: '險ｭ螳壽ｸ医∩縺ｮ蝠・刀繧ｳ繝ｼ繝峨ｒ蜷ｫ繧',
-    detail: '蟇ｾ雎｡SKU繧貞性繧蜿玲ｳｨ繧偵∵欠螳壹＆繧後◆蛟牙ｺｫ縺ｮ繧､繝ｬ繧ｮ繝･繝ｩ繝ｼ繧ｰ繝ｫ繝ｼ繝励∈謖ｯ繧雁・縺代∪縺吶・,
-    action: '蝠・刀縺ｨ蛟牙ｺｫ繧堤｢ｺ隱阪＠縲∵欠螳壼牙ｺｫ縺ｮ蜃ｺ闕ｷ蜃ｦ逅・∈騾ｲ繧√∪縺吶・,
+    condition: '設定済みの商品コードを含む',
+    detail: '対象SKUを含む受注を、指定された倉庫のイレギュラーグループへ振り分けます。',
+    action: '商品と倉庫を確認し、指定倉庫の出荷処理へ進めます。',
   },
   {
     number: '07',
-    title: '雉ｼ蜈･URL遒ｺ隱・,
+    title: '購入URL確認',
     icon: Link,
     tone: 'pink',
-    condition: 'times=1 縺九▽ URL縺ｫdefo / test',
-    detail: '繝・せ繝育畑繝ｻ遒ｺ隱咲畑URL縺九ｉ豬∝・縺励◆蛻晏屓蜿玲ｳｨ繧呈､懷・縺励∪縺吶・,
-    action: '譛ｬ逡ｪ蜃ｺ闕ｷ縺悟ｿ・ｦ√°遒ｺ隱阪＠縲∽ｸ崎ｦ√↑繧峨く繝｣繝ｳ繧ｻ繝ｫ縺励∪縺吶・,
+    condition: 'times=1 かつ URLにdefo / test',
+    detail: 'テスト用・確認用URLから流入した初回受注を検出します。',
+    action: '本番出荷が必要か確認し、不要ならキャンセルします。',
   },
   {
     number: '08',
-    title: '菴乗園譬｡豁｣',
+    title: '住所校正',
     icon: MapPin,
     tone: 'green',
-    condition: '蛻晏屓豕ｨ譁・ｼ・imes 竕､ 1・・,
-    detail: '莠句燕譬｡豁｣繧ｭ繝｣繝・す繝･繧貞━蜈医＠縲∵悴譬｡豁｣菴乗園縺縺羨I縺ｧ譬｡豁｣縺励∪縺吶・,
-    action: 'Review繝ｻNG縺ｨ螟画峩蜀・ｮｹ繧堤岼隕也｢ｺ隱阪＠縺ｦ縺九ｉecforce縺ｸ蜿肴丐縺励∪縺吶・,
+    condition: '初回注文（times ≤ 1）',
+    detail: '事前校正キャッシュを優先し、未校正住所だけAIで校正します。',
+    action: 'Review・NGと変更内容を目視確認してからecforceへ反映します。',
   },
   {
     number: '09',
-    title: 'O-PLUX蟇ｩ譟ｻ遒ｺ隱・,
+    title: 'O-PLUX審査確認',
     icon: ShieldCheck,
     tone: 'indigo',
-    condition: 'times=1縲ヽEVIEW縺ｾ縺溘・隧ｳ邏ｰ縺ゅｊ縺ｮOK',
-    detail: 'REVIEW縺ｯ蟶ｸ縺ｫ陦ｨ遉ｺ縺励＾K縺ｯ蟇ｩ譟ｻ隧ｳ邏ｰ縺後≠繧句ｴ蜷医□縺題｡ｨ遉ｺ縺励∪縺吶・G縺ｯ蟇ｾ雎｡螟悶〒縺吶・,
-    action: '蟇ｩ譟ｻ隧ｳ邏ｰ繧定ｪｭ縺ｿ縲∝・闕ｷ繝ｻ菫晉蕗繝ｻ繧ｭ繝｣繝ｳ繧ｻ繝ｫ繧貞愛譁ｭ縺励∪縺吶・,
+    condition: 'times=1、REVIEWまたは詳細ありのOK',
+    detail: 'REVIEWは常に表示し、OKは審査詳細がある場合だけ表示します。NGは対象外です。',
+    action: '審査詳細を読み、出荷・保留・キャンセルを判断します。',
   },
 ];
 
@@ -125,58 +125,58 @@ const TONE_CLASSES = {
 const CATEGORIES = [
   {
     id: 'overview',
-    title: '蜈ｨ菴薙・豬√ｌ',
-    short: '縺ｾ縺壹・縺薙■繧・,
-    description: '蜃ｺ闕ｷ繧ｻ繝・す繝ｧ繝ｳ髢句ｧ九°繧牙・闕ｷ逋ｻ骭ｲ縺ｾ縺ｧ縺ｮ蜈ｨ菴灘ワ',
-    keywords: '縺ｯ縺倥ａ縺ｫ 繧ｻ繝・す繝ｧ繝ｳ 豬√ｌ 螳御ｺ・,
+    title: '全体の流れ',
+    short: 'まずはこちら',
+    description: '出荷セッション開始から出荷登録までの全体像',
+    keywords: 'はじめに セッション 流れ 完了',
     icon: BookOpen,
   },
   {
     id: 'calendar',
-    title: '蜃ｺ闕ｷ譌･繝ｻ蛟牙ｺｫ',
-    short: '譌･莉倥→蛟牙ｺｫ蛻､螳・,
-    description: '譏ｼ繝ｻ螟輔・蜃ｺ闕ｷ譌･縺ｨ縲∝ｹｳ譌･繝ｻ蝨滓律逾昴・蛟牙ｺｫ險育ｮ・,
-    keywords: '譏ｼ 螟・鄙梧律 蟷ｳ譌･ 蝨滓律 逾晄律 FJ 蝪壽悽 COOOLa 繧ｳ繝槭Ο繝・,
+    title: '出荷日・倉庫',
+    short: '日付と倉庫判定',
+    description: '昼・夕の出荷日と、平日・土日祝の倉庫計算',
+    keywords: '昼 夕 翌日 平日 土日 祝日 FJ 塚本 COOOLa コマロボ',
     icon: CalendarDays,
   },
   {
     id: 'orders',
-    title: '蟇ｾ雎｡蜿玲ｳｨ',
-    short: '謚ｽ蜃ｺ縺ｨ莉ｶ謨ｰ',
-    description: 'ecforce縺九ｉ蜿門ｾ励☆繧区擅莉ｶ縺ｨ騾壼ｸｸ繝ｻ繧､繝ｬ繧ｮ繝･繝ｩ繝ｼ縺ｮ蛻・｡・,
-    keywords: '蜿玲ｳｨ complete tbc times 譁ｰ隕・譌｢蟄・繧､繝ｬ繧ｮ繝･繝ｩ繝ｼ 蝠・刀繧ｳ繝ｼ繝・,
+    title: '対象受注',
+    short: '抽出と件数',
+    description: 'ecforceから取得する条件と通常・イレギュラーの分類',
+    keywords: '受注 complete tbc times 新規 既存 イレギュラー 商品コード',
     icon: Package,
   },
   {
     id: 'tasks',
-    title: '9縺､縺ｮ遒ｺ隱阪ち繧ｹ繧ｯ',
-    short: '讀懷・譚｡莉ｶ縺ｨ蟇ｾ蠢・,
-    description: '蜷・ち繧ｹ繧ｯ縺御ｽ輔ｒ讀懷・縺励∽ｽ懈･ｭ閠・′菴輔ｒ縺吶ｋ縺・,
+    title: '9つの確認タスク',
+    short: '検出条件と対応',
+    description: '各タスクが何を検出し、作業者が何をするか',
     keywords: TASKS.map((task) => `${task.title} ${task.condition}`).join(' '),
     icon: ListChecks,
   },
   {
     id: 'address',
-    title: '菴乗園譬｡豁｣',
-    short: 'AI蛻､螳壹→菴乗園蜿肴丐',
-    description: 'OK繝ｻReview繝ｻNG縺ｨecforce菴乗園繝輔ぅ繝ｼ繝ｫ繝峨・蝗ｺ螳壹Ν繝ｼ繝ｫ',
-    keywords: '菴乗園 AI OK Review NG addr01 addr02 zip 驛ｵ萓ｿ逡ｪ蜿ｷ 驛ｽ驕灘ｺ懃恁',
+    title: '住所校正',
+    short: 'AI判定と住所反映',
+    description: 'OK・Review・NGとecforce住所フィールドの固定ルール',
+    keywords: '住所 AI OK Review NG addr01 addr02 zip 郵便番号 都道府県',
     icon: MapPin,
   },
   {
     id: 'shipping',
-    title: '蜃ｺ闕ｷ逋ｻ骭ｲ',
-    short: '逋ｻ骭ｲ蜿ｯ蜷ｦ縺ｨstate',
-    description: '蟾ｮ蛻・メ繧ｧ繝・け縲∫匳骭ｲ譚｡莉ｶ縲∝牙ｺｫ蛻･縺ｮecforce譖ｴ譁ｰ蛟､',
-    keywords: '蜃ｺ闕ｷ 蟾ｮ蛻・complete authed credit_exam_completed cooolawait wmswait',
+    title: '出荷登録',
+    short: '登録可否とstate',
+    description: '差分チェック、登録条件、倉庫別のecforce更新値',
+    keywords: '出荷 差分 complete authed credit_exam_completed cooolawait wmswait',
     icon: Truck,
   },
   {
     id: 'recovery',
-    title: '繧ｨ繝ｩ繝ｼ繝ｻ蜀崎ｩｦ陦・,
-    short: '螟ｱ謨玲凾縺ｮ蜍輔″',
-    description: 'API螟ｱ謨励√Ξ繝ｼ繝亥宛髯舌∝・螳溯｡後・繝ｫ繝ｼ繝ｫ',
-    keywords: '繧ｨ繝ｩ繝ｼ 429 500 蜀崎ｩｦ陦・繝ｪ繝医Λ繧､ API 螟ｱ謨・,
+    title: 'エラー・再試行',
+    short: '失敗時の動き',
+    description: 'API失敗、レート制限、再実行のルール',
+    keywords: 'エラー 429 500 再試行 リトライ API 失敗',
     icon: RefreshCw,
   },
 ];
@@ -251,27 +251,27 @@ function Flow({ items }) {
 function OverviewPage() {
   return (
     <div className="space-y-5">
-      <RuleSection eyebrow="Overview" title="蜃ｺ闕ｷ讌ｭ蜍吶・5縺､縺ｮ谿ｵ髫弱〒騾ｲ縺ｿ縺ｾ縺・>
+      <RuleSection eyebrow="Overview" title="出荷業務は5つの段階で進みます">
         <Flow items={[
-          { title: '繧ｻ繝・す繝ｧ繝ｳ髢句ｧ・, text: '譌･莉倥・譏ｼ螟輔・諡・ｽ楢・ｒ謖・ｮ・ },
-          { title: '蜿玲ｳｨ繧呈歓蜃ｺ', text: '蟇ｾ雎｡譌･縺ｨ迥ｶ諷九〒ecforce讀懃ｴ｢' },
-          { title: '9繧ｿ繧ｹ繧ｯ遒ｺ隱・, text: '逡ｰ蟶ｸ繝ｻ隕∫｢ｺ隱榊女豕ｨ繧貞・逅・ },
-          { title: '蟾ｮ蛻・メ繧ｧ繝・け', text: '菴懈･ｭ荳ｭ縺ｮ迥ｶ諷句､画峩繧貞・遒ｺ隱・ },
-          { title: '蜃ｺ闕ｷ逋ｻ骭ｲ', text: '蛟牙ｺｫ蛻･state繧弾cforce縺ｸ蜿肴丐' },
+          { title: 'セッション開始', text: '日付・昼夕・担当者を指定' },
+          { title: '受注を抽出', text: '対象日と状態でecforce検索' },
+          { title: '9タスク確認', text: '異常・要確認受注を処理' },
+          { title: '差分チェック', text: '作業中の状態変更を再確認' },
+          { title: '出荷登録', text: '倉庫別stateをecforceへ反映' },
         ]} />
       </RuleSection>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <RuleSection title="繧ｻ繝・す繝ｧ繝ｳ螳御ｺ・・譚｡莉ｶ">
-          <Formula label="繧ｿ繧ｹ繧ｯ螳御ｺ・愛螳・>
-            {'蜈ｨ繧ｿ繧ｹ繧ｯ螳御ｺ・n= 9繧ｿ繧ｹ繧ｯ縺吶∋縺ｦ縺後悟ｮ御ｺ・阪∪縺溘・縲後せ繧ｭ繝・・縲・}
+        <RuleSection title="セッション完了の条件">
+          <Formula label="タスク完了判定">
+            {'全タスク完了\n= 9タスクすべてが「完了」または「スキップ」'}
           </Formula>
         </RuleSection>
-        <RuleSection title="逕ｻ髱｢荳翫・迥ｶ諷・>
+        <RuleSection title="画面上の状態">
           <div className="space-y-2 text-xs">
             {[
-              ['騾ｲ陦御ｸｭ', '蜷・｢ｺ隱阪ち繧ｹ繧ｯ繧貞・逅・＠縺ｦ縺・ｋ迥ｶ諷・, 'bg-blue-100 text-blue-700'],
-              ['繝√ぉ繝・け螳御ｺ・, '9繧ｿ繧ｹ繧ｯ螳御ｺ・ょｷｮ蛻・｢ｺ隱阪→蜃ｺ闕ｷ逋ｻ骭ｲ縺ｸ', 'bg-green-100 text-green-700'],
-              ['蜃ｺ闕ｷ螳御ｺ・, '縺吶∋縺ｦ縺ｮ蛟牙ｺｫ繧ｰ繝ｫ繝ｼ繝励・逋ｻ骭ｲ縺梧・蜉・, 'bg-green-600 text-white'],
+              ['進行中', '各確認タスクを処理している状態', 'bg-blue-100 text-blue-700'],
+              ['チェック完了', '9タスク完了。差分確認と出荷登録へ', 'bg-green-100 text-green-700'],
+              ['出荷完了', 'すべての倉庫グループの登録が成功', 'bg-green-600 text-white'],
             ].map(([label, text, classes]) => (
               <div key={label} className="flex items-center gap-3 p-3 rounded-lg bg-cream-50">
                 <span className={`px-2 py-1 rounded-full font-heading font-bold whitespace-nowrap ${classes}`}>{label}</span>
@@ -281,8 +281,10 @@ function OverviewPage() {
           </div>
         </RuleSection>
       </div>
-      <Notice tone="info" title="縺薙・繝壹・繧ｸ縺ｮ蠖ｹ蜑ｲ">
-        縺薙・繝ｫ繝ｼ繝ｫ繝悶ャ繧ｯ縺ｯ縲√す繧ｹ繝・Β縺後←縺ｮ譚｡莉ｶ縺ｧ蜿玲ｳｨ繧呈歓蜃ｺ繝ｻ蛻､螳壹・譖ｴ譁ｰ縺吶ｋ縺九ｒ隱ｬ譏弱＠縺ｾ縺吶・        螳滄圀縺ｮ蛻､譁ｭ縺ｫ霑ｷ縺｣縺溷ｴ蜷医・縲∝推繧ｿ繧ｹ繧ｯ縺ｮ縲悟ｯｾ雎｡譚｡莉ｶ縲阪→縲御ｽ懈･ｭ閠・・蟇ｾ蠢懊阪ｒ遒ｺ隱阪＠縺ｦ縺上□縺輔＞縲・      </Notice>
+      <Notice tone="info" title="このページの役割">
+        このルールブックは、システムがどの条件で受注を抽出・判定・更新するかを説明します。
+        実際の判断に迷った場合は、各タスクの「対象条件」と「作業者の対応」を確認してください。
+      </Notice>
     </div>
   );
 }
@@ -291,21 +293,21 @@ function CalendarPage({ isAdmin, onNavigate }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <RuleSection eyebrow="Shipping date" title="蜃ｺ闕ｷ蟇ｾ雎｡譌･縺ｮ險育ｮ・>
-          <Formula label="譏ｼ縺ｮ驛ｨ">
-            {'蜃ｺ闕ｷ蟇ｾ雎｡譌･ = 繧ｫ繝ｬ繝ｳ繝繝ｼ縺ｧ驕ｸ謚槭＠縺滓律'}
+        <RuleSection eyebrow="Shipping date" title="出荷対象日の計算">
+          <Formula label="昼の部">
+            {'出荷対象日 = カレンダーで選択した日'}
           </Formula>
           <div className="h-3" />
-          <Formula label="螟輔・驛ｨ" note="蛟牙ｺｫ蛻､螳壹↓繧らｿ梧律縺ｮ譖懈律繝ｻ逾晄律繧剃ｽｿ縺・∪縺吶・>
-            {'蜃ｺ闕ｷ蟇ｾ雎｡譌･ = 繧ｫ繝ｬ繝ｳ繝繝ｼ縺ｧ驕ｸ謚槭＠縺滓律 + 1譌･'}
+          <Formula label="夕の部" note="倉庫判定にも翌日の曜日・祝日を使います。">
+            {'出荷対象日 = カレンダーで選択した日 + 1日'}
           </Formula>
         </RuleSection>
-        <RuleSection eyebrow="Warehouse" title="蛟牙ｺｫ縺ｮ蜆ｪ蜈磯・ｽ・>
+        <RuleSection eyebrow="Warehouse" title="倉庫の優先順位">
           <div className="space-y-3">
             {[
-              ['1', '謇句虚謖・ｮ・, '蛟牙ｺｫ繧ｫ繝ｬ繝ｳ繝繝ｼ縺ｮ謖・ｮ壹ｒ譛蜆ｪ蜈・],
-              ['2', '蝨滓律繝ｻ逾晄律', 'FJ繝ｭ繧ｸ / 繧ｳ繝槭Ο繝・],
-              ['3', '騾壼ｸｸ縺ｮ蟷ｳ譌･', '蝪壽悽驛ｵ萓ｿ騾馴・/ COOOLa'],
+              ['1', '手動指定', '倉庫カレンダーの指定を最優先'],
+              ['2', '土日・祝日', 'FJロジ / コマロボ'],
+              ['3', '通常の平日', '塚本郵便逓送 / COOOLa'],
             ].map(([number, label, text]) => (
               <div key={number} className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-cream-200 text-cream-700 flex items-center justify-center text-xs font-bold">{number}</div>
@@ -318,12 +320,12 @@ function CalendarPage({ isAdmin, onNavigate }) {
           </div>
         </RuleSection>
       </div>
-      <RuleSection title="蜈ｷ菴謎ｾ・>
+      <RuleSection title="具体例">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[
-            { date: '蟷ｳ譌･繝ｻ譏ｼ縺ｮ驛ｨ', result: '蠖捺律 竊・蝪壽悽', sub: 'COOOLa縺ｧ蜃ｺ闕ｷ逋ｻ骭ｲ' },
-            { date: '驥第屆繝ｻ螟輔・驛ｨ', result: '蝨滓屆 竊・FJ繝ｭ繧ｸ', sub: '鄙梧律蝓ｺ貅悶〒蛻､螳・ },
-            { date: '逾晏燕譌･繝ｻ螟輔・驛ｨ', result: '逾晄律 竊・FJ繝ｭ繧ｸ', sub: '逋ｻ骭ｲ逾晄律繧貞盾辣ｧ' },
+            { date: '平日・昼の部', result: '当日 → 塚本', sub: 'COOOLaで出荷登録' },
+            { date: '金曜・夕の部', result: '土曜 → FJロジ', sub: '翌日基準で判定' },
+            { date: '祝前日・夕の部', result: '祝日 → FJロジ', sub: '登録祝日を参照' },
           ].map((example) => (
             <div key={example.date} className="rounded-xl border border-cream-200 p-4 bg-cream-50">
               <p className="text-xs text-cream-500">{example.date}</p>
@@ -336,7 +338,7 @@ function CalendarPage({ isAdmin, onNavigate }) {
       {isAdmin && (
         <button onClick={() => onNavigate('warehouse')}
           className="w-full rounded-xl border border-accent/30 bg-accent/5 hover:bg-accent/10 px-4 py-3 flex items-center justify-center gap-2 text-sm font-heading font-bold text-accent transition-colors">
-          <Warehouse size={17} /> 蛟牙ｺｫ繧ｫ繝ｬ繝ｳ繝繝ｼ繧堤｢ｺ隱阪・螟画峩
+          <Warehouse size={17} /> 倉庫カレンダーを確認・変更
         </button>
       )}
     </div>
@@ -346,12 +348,12 @@ function CalendarPage({ isAdmin, onNavigate }) {
 function OrdersPage({ isAdmin, onNavigate }) {
   return (
     <div className="space-y-5">
-      <RuleSection eyebrow="Fetch" title="ecforce縺九ｉ蜿門ｾ励☆繧区擅莉ｶ">
+      <RuleSection eyebrow="Fetch" title="ecforceから取得する条件">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[
-            ['蜿玲ｳｨ迥ｶ諷・, 'state = complete'],
-            ['逋ｺ騾∽ｺ亥ｮ壽律', '蟇ｾ雎｡譌･縺ｮ00:00縲・3:59'],
-            ['蜿門ｾ怜腰菴・, '100莉ｶ縺壹▽蜈ｨ繝壹・繧ｸ'],
+            ['受注状態', 'state = complete'],
+            ['発送予定日', '対象日の00:00〜23:59'],
+            ['取得単位', '100件ずつ全ページ'],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl bg-cream-50 border border-cream-200 p-4">
               <p className="text-xs text-cream-500">{label}</p>
@@ -360,28 +362,30 @@ function OrdersPage({ isAdmin, onNavigate }) {
           ))}
         </div>
       </RuleSection>
-      <RuleSection eyebrow="Filter" title="蜿門ｾ怜ｾ後・蛻・｡・>
+      <RuleSection eyebrow="Filter" title="取得後の分類">
         <Flow items={[
-          { title: '蜈ｨ蜿玲ｳｨ', text: '蟇ｾ雎｡譌･縺ｮcomplete繧貞叙蠕・ },
-          { title: '蛻晏屓蛻､螳・, text: 'times 竕､ 1 繧呈眠隕乗桶縺・ },
-          { title: '隕∝ｯｾ蠢憺勁螟・, text: 'tbc=true繧帝壼ｸｸ繝輔Ο繝ｼ縺九ｉ髯､螟・ },
-          { title: 'SKU蛻､螳・, text: '險ｭ螳壹さ繝ｼ繝峨ｒ謖・ｮ壼牙ｺｫ縺ｸ蛻・屬' },
-          { title: '騾壼ｸｸ蜿玲ｳｨ', text: '9縺､縺ｮ遒ｺ隱阪ち繧ｹ繧ｯ縺ｸ' },
+          { title: '全受注', text: '対象日のcompleteを取得' },
+          { title: '初回判定', text: 'times ≤ 1 を新規扱い' },
+          { title: '要対応除外', text: 'tbc=trueを通常フローから除外' },
+          { title: 'SKU判定', text: '設定コードを指定倉庫へ分離' },
+          { title: '通常受注', text: '9つの確認タスクへ' },
         ]} />
       </RuleSection>
-      <RuleSection title="莉ｶ謨ｰ縺ｮ險育ｮ・>
+      <RuleSection title="件数の計算">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Formula label="騾壼ｸｸ蜿玲ｳｨ謨ｰ">{'API蜿門ｾ玲焚 - 隕∝ｯｾ蠢懷女豕ｨ - 繧､繝ｬ繧ｮ繝･繝ｩ繝ｼ蜿玲ｳｨ'}</Formula>
-          <Formula label="譁ｰ隕丈ｻｶ謨ｰ">{'騾壼ｸｸ蜿玲ｳｨ縺ｮ縺・■ times 竕､ 1'}</Formula>
-          <Formula label="譌｢蟄倅ｻｶ謨ｰ">{'騾壼ｸｸ蜿玲ｳｨ謨ｰ - 譁ｰ隕丈ｻｶ謨ｰ'}</Formula>
+          <Formula label="通常受注数">{'API取得数 - 要対応受注 - イレギュラー受注'}</Formula>
+          <Formula label="新規件数">{'通常受注のうち times ≤ 1'}</Formula>
+          <Formula label="既存件数">{'通常受注数 - 新規件数'}</Formula>
         </div>
       </RuleSection>
-      <Notice tone="warning" title="times縺悟叙蠕励〒縺阪↑縺・ｴ蜷・>
-        迴ｾ陦後Ο繧ｸ繝・け縺ｧ縺ｯtimes縺後↑縺・女豕ｨ縺ｯ0縺ｨ縺励※謇ｱ繧上ｌ繧九◆繧√∝・蝗槫女豕ｨ縺ｫ蛻・｡槭＆繧後∪縺吶・      </Notice>
+      <Notice tone="warning" title="timesが取得できない場合">
+        現行ロジックではtimesがない受注は0として扱われるため、初回受注に分類されます。
+      </Notice>
       {isAdmin && (
         <button onClick={() => onNavigate('settings')}
           className="w-full rounded-xl border border-accent/30 bg-accent/5 hover:bg-accent/10 px-4 py-3 flex items-center justify-center gap-2 text-sm font-heading font-bold text-accent transition-colors">
-          <ShoppingBag size={17} /> 繧､繝ｬ繧ｮ繝･繝ｩ繝ｼ蝠・刀險ｭ螳壹ｒ遒ｺ隱・        </button>
+          <ShoppingBag size={17} /> イレギュラー商品設定を確認
+        </button>
       )}
     </div>
   );
@@ -390,8 +394,10 @@ function OrdersPage({ isAdmin, onNavigate }) {
 function TasksPage() {
   return (
     <div className="space-y-5">
-      <Notice tone="info" title="繧ｿ繧ｹ繧ｯ縺ｯ騾壼ｸｸ蜿玲ｳｨ縺ｫ蟇ｾ縺励※險育ｮ励＆繧後∪縺・>
-        隕∝ｯｾ蠢懷女豕ｨ縺ｨ蛟牙ｺｫ蛻･繧､繝ｬ繧ｮ繝･繝ｩ繝ｼ蜿玲ｳｨ繧帝勁縺・◆縺ゅ→縲∝推繧ｿ繧ｹ繧ｯ縺ｮ譚｡莉ｶ繧堤峡遶九＠縺ｦ蛻､螳壹＠縺ｾ縺吶・        蜷後§蜿玲ｳｨ縺瑚､・焚縺ｮ繧ｿ繧ｹ繧ｯ縺ｫ陦ｨ遉ｺ縺輔ｌ繧九％縺ｨ縺後≠繧翫∪縺吶・      </Notice>
+      <Notice tone="info" title="タスクは通常受注に対して計算されます">
+        要対応受注と倉庫別イレギュラー受注を除いたあと、各タスクの条件を独立して判定します。
+        同じ受注が複数のタスクに表示されることがあります。
+      </Notice>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {TASKS.map((task) => {
           const Icon = task.icon;
@@ -414,7 +420,7 @@ function TasksPage() {
               </div>
               <div className="px-4 py-3 bg-cream-50 border-t border-cream-100 flex items-start gap-2">
                 <CheckCircle2 size={14} className="text-green-600 shrink-0 mt-0.5" />
-                <p className="text-xs text-cream-600 leading-5"><span className="font-bold text-cream-800">蟇ｾ蠢懶ｼ・/span>{task.action}</p>
+                <p className="text-xs text-cream-600 leading-5"><span className="font-bold text-cream-800">対応：</span>{task.action}</p>
               </div>
             </article>
           );
@@ -427,12 +433,12 @@ function TasksPage() {
 function AddressPage() {
   return (
     <div className="space-y-5">
-      <RuleSection eyebrow="AI correction" title="菴乗園譬｡豁｣縺ｮ蛻､螳・>
+      <RuleSection eyebrow="AI correction" title="住所校正の判定">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[
-            ['OK', '驟埼∽ｸ雁撫鬘後↑縺・, 'bg-green-50 border-green-200 text-green-700'],
-            ['Review', '逶ｮ隕也｢ｺ隱阪′蠢・ｦ・, 'bg-amber-50 border-amber-200 text-amber-700'],
-            ['NG', '荳榊ｙ繝ｻ驟埼√Μ繧ｹ繧ｯ縺碁ｫ倥＞', 'bg-red-50 border-red-200 text-red-700'],
+            ['OK', '配送上問題なし', 'bg-green-50 border-green-200 text-green-700'],
+            ['Review', '目視確認が必要', 'bg-amber-50 border-amber-200 text-amber-700'],
+            ['NG', '不備・配送リスクが高い', 'bg-red-50 border-red-200 text-red-700'],
           ].map(([score, text, classes]) => (
             <div key={score} className={`rounded-xl border p-4 ${classes}`}>
               <p className="text-lg font-heading font-bold">{score}</p>
@@ -441,20 +447,20 @@ function AddressPage() {
           ))}
         </div>
       </RuleSection>
-      <RuleSection eyebrow="Fixed mapping" title="ecforce縺ｸ騾√ｋ菴乗園縺ｮ邨・∩遶九※">
+      <RuleSection eyebrow="Fixed mapping" title="ecforceへ送る住所の組み立て">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Formula label="addr01・亥ｸょ玄逕ｺ譚代・逕ｺ蜷搾ｼ・>{'addr01 = city + town'}</Formula>
-          <Formula label="addr02・育分蝨ｰ繝ｻ蟒ｺ迚ｩ・・>{'addr02 = chome-banchi-go\n        + 蜊願ｧ偵せ繝壹・繧ｹ\n        + building + building_number'}</Formula>
-          <Formula label="驛ｵ萓ｿ逡ｪ蜿ｷ">{'zip01 = 荳・譯―nzip02 = 荳・譯・}</Formula>
-          <Formula label="譖ｴ譁ｰ蟇ｾ雎｡">{'豕ｨ譁・ｼ夐・騾∝・ + 隲区ｱょ・\n螳壽悄・夐・騾∝・\n鬘ｧ螳｢・夊ｫ区ｱょ・'}</Formula>
+          <Formula label="addr01（市区町村・町名）">{'addr01 = city + town'}</Formula>
+          <Formula label="addr02（番地・建物）">{'addr02 = chome-banchi-go\n        + 半角スペース\n        + building + building_number'}</Formula>
+          <Formula label="郵便番号">{'zip01 = 上3桁\nzip02 = 下4桁'}</Formula>
+          <Formula label="更新対象">{'注文：配送先 + 請求先\n定期：配送先\n顧客：請求先'}</Formula>
         </div>
       </RuleSection>
-      <Notice tone="danger" title="螟画峩遖∵ｭ｢縺ｮ菴乗園繝ｫ繝ｼ繝ｫ">
+      <Notice tone="danger" title="変更禁止の住所ルール">
         <ul className="list-disc pl-4 space-y-1">
-          <li>addr01縺ｫ驛ｽ驕灘ｺ懃恁繧貞性繧√∪縺帙ｓ縲・/li>
-          <li>驛ｽ驕灘ｺ懃恁縺ｯecforce縺ｮ迴ｾ蝨ｨ蛟､繧堤ｶｭ謖√＠縲∵峩譁ｰ縺励∪縺帙ｓ縲・/li>
-          <li>prefecture_id縺ｯ蜴溷援縺ｨ縺励※騾∽ｿ｡縺励∪縺帙ｓ縲・/li>
-          <li>Review繝ｻNG縺ｯ蜿肴丐蜑阪↓蠢・★譬｡豁｣蠕御ｽ乗園繧堤岼隕也｢ｺ隱阪＠縺ｾ縺吶・/li>
+          <li>addr01に都道府県を含めません。</li>
+          <li>都道府県はecforceの現在値を維持し、更新しません。</li>
+          <li>prefecture_idは原則として送信しません。</li>
+          <li>Review・NGは反映前に必ず校正後住所を目視確認します。</li>
         </ul>
       </Notice>
     </div>
@@ -464,7 +470,7 @@ function AddressPage() {
 function ShippingPage() {
   return (
     <div className="space-y-5">
-      <RuleSection eyebrow="Recheck" title="繧ｿ繧ｹ繧ｯ螳御ｺ・ｾ後・蟾ｮ蛻・メ繧ｧ繝・け">
+      <RuleSection eyebrow="Recheck" title="タスク完了後の差分チェック">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {['state', 'payment_state', 'tbc', 'human_state'].map((field) => (
             <div key={field} className="rounded-xl border border-cream-200 bg-cream-50 p-4 text-center">
@@ -473,32 +479,34 @@ function ShippingPage() {
           ))}
         </div>
         <p className="text-xs text-cream-500 leading-6 mt-4">
-          state繝ｻpayment_state繝ｻtbc縺ｫ螟画峩縺後≠繧句女豕ｨ縲√∪縺溘・API縺九ｉ蜿門ｾ励〒縺阪↑縺上↑縺｣縺溷女豕ｨ縺ｯ縲・          蜃ｺ闕ｷ縺ｫ蠖ｱ髻ｿ縺吶ｋ螟画峩縺ｨ縺励※蜃ｺ闕ｷ驕ｸ謚槭°繧芽・蜍暮勁螟悶＆繧後∪縺吶・        </p>
+          state・payment_state・tbcに変更がある受注、またはAPIから取得できなくなった受注は、
+          出荷に影響する変更として出荷選択から自動除外されます。
+        </p>
       </RuleSection>
-      <RuleSection eyebrow="Eligibility" title="蜃ｺ闕ｷ逋ｻ骭ｲ縺ｧ縺阪ｋ譚｡莉ｶ">
-        <Formula label="逋ｻ骭ｲ蜿ｯ蜷ｦ">
-          {'state = complete\n縺九▽\npayment_state = credit_exam_completed 縺ｾ縺溘・ authed'}
+      <RuleSection eyebrow="Eligibility" title="出荷登録できる条件">
+        <Formula label="登録可否">
+          {'state = complete\nかつ\npayment_state = credit_exam_completed または authed'}
         </Formula>
       </RuleSection>
-      <RuleSection title="蛟牙ｺｫ蛻･縺ｮecforce譖ｴ譁ｰ蛟､">
+      <RuleSection title="倉庫別のecforce更新値">
         <div className="overflow-hidden rounded-xl border border-cream-200">
           <table className="w-full text-sm">
             <thead className="bg-cream-100 text-cream-600 text-xs">
               <tr>
-                <th className="text-left px-4 py-3 font-heading">蛟牙ｺｫ</th>
-                <th className="text-left px-4 py-3 font-heading">繧ｷ繧ｹ繝・Β</th>
+                <th className="text-left px-4 py-3 font-heading">倉庫</th>
+                <th className="text-left px-4 py-3 font-heading">システム</th>
                 <th className="text-left px-4 py-3 font-heading">ecforce state</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cream-100">
               <tr>
-                <td className="px-4 py-3 font-bold text-cream-900">蝪壽悽驛ｵ萓ｿ騾馴・/td>
+                <td className="px-4 py-3 font-bold text-cream-900">塚本郵便逓送</td>
                 <td className="px-4 py-3 text-cream-600">COOOLa</td>
                 <td className="px-4 py-3"><code className="px-2 py-1 bg-blue-50 text-blue-700 rounded">cooolawait</code></td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-bold text-cream-900">FJ繝ｭ繧ｸ</td>
-                <td className="px-4 py-3 text-cream-600">繧ｳ繝槭Ο繝・/td>
+                <td className="px-4 py-3 font-bold text-cream-900">FJロジ</td>
+                <td className="px-4 py-3 text-cream-600">コマロボ</td>
                 <td className="px-4 py-3"><code className="px-2 py-1 bg-green-50 text-green-700 rounded">wmswait</code></td>
               </tr>
             </tbody>
@@ -512,13 +520,13 @@ function ShippingPage() {
 function RecoveryPage() {
   return (
     <div className="space-y-5">
-      <RuleSection eyebrow="Retry" title="蜃ｦ逅・挨縺ｮ蜀崎ｩｦ陦・>
+      <RuleSection eyebrow="Retry" title="処理別の再試行">
         <div className="space-y-3">
           {[
-            { title: 'ecforce蜈ｱ騾哂PI', value: '429繧呈怙螟ｧ3蝗・, note: '3遘偵・遘偵・遘貞ｾ・ｩ溘＠縺ｦ蜀崎ｩｦ陦・ },
-            { title: '蜃ｺ闕ｷ逋ｻ骭ｲ', value: '螟ｱ謨怜・繧呈怙螟ｧ2蝗・, note: '蛻晏屓繧貞性繧∵怙螟ｧ3蝗櫁ｩｦ陦・ },
-            { title: '菴乗園譖ｸ縺肴綾縺・, value: '429繝ｻ5xx繧呈怙螟ｧ6蝗・, note: '譛菴・.3遘帝俣髫斐∵欠謨ｰ繝舌ャ繧ｯ繧ｪ繝・ },
-            { title: '菴乗園AI譬｡豁｣', value: '3莉ｶ縺壹▽荳ｦ蛻怜・逅・, note: '螟ｱ謨励＠縺滉ｽ乗園縺ｯ繧ｨ繝ｩ繝ｼ縺ｨ縺励※邨先棡縺ｫ菫晄戟' },
+            { title: 'ecforce共通API', value: '429を最大3回', note: '3秒、6秒、9秒待機して再試行' },
+            { title: '出荷登録', value: '失敗分を最大2回', note: '初回を含め最大3回試行' },
+            { title: '住所書き戻し', value: '429・5xxを最大6回', note: '最低1.3秒間隔、指数バックオフ' },
+            { title: '住所AI校正', value: '3件ずつ並列処理', note: '失敗した住所はエラーとして結果に保持' },
           ].map((row) => (
             <div key={row.title} className="rounded-xl border border-cream-200 bg-cream-50 p-4 flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
               <div className="w-40 text-sm font-heading font-bold text-cream-900">{row.title}</div>
@@ -531,10 +539,12 @@ function RecoveryPage() {
         </div>
       </RuleSection>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Notice tone="warning" title="蜿玲ｳｨ縺悟・蜿門ｾ励〒縺阪↑縺・ｴ蜷・>
-          逋ｺ騾∽ｺ亥ｮ壽律縺ｮ螟画峩繧・ｯｾ雎｡螟悶∈縺ｮ迥ｶ諷句､画峩縺瑚・∴繧峨ｌ縺ｾ縺吶ょｷｮ蛻・≠繧翫→縺励※蜃ｺ闕ｷ驕ｸ謚槭°繧蛾勁螟悶＠縲‘cforce縺ｧ蜿玲ｳｨ繧堤｢ｺ隱阪＠縺ｾ縺吶・        </Notice>
-        <Notice tone="info" title="繧ｻ繝・す繝ｧ繝ｳ螻･豁ｴ">
-          豁｣蟶ｸ螳御ｺ・＠縺溘そ繝・す繝ｧ繝ｳ縺ｯ諡・ｽ楢・∝・闕ｷ譌･縲∝牙ｺｫ縲√ち繧ｹ繧ｯ邨先棡縺ｨ縺ｨ繧ゅ↓螻･豁ｴ縺ｸ菫晏ｭ倥＆繧後∪縺吶・        </Notice>
+        <Notice tone="warning" title="受注が再取得できない場合">
+          発送予定日の変更や対象外への状態変更が考えられます。差分ありとして出荷選択から除外し、ecforceで受注を確認します。
+        </Notice>
+        <Notice tone="info" title="セッション履歴">
+          正常完了したセッションは担当者、出荷日、倉庫、タスク結果とともに履歴へ保存されます。
+        </Notice>
       </div>
     </div>
   );
@@ -581,15 +591,16 @@ export default function ShippingRules({ onNavigate = () => {} }) {
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-heading font-semibold mb-3">
               <BookOpen size={14} /> SHIPPING RULEBOOK
             </div>
-            <h2 className="font-heading font-bold text-2xl md:text-3xl">蜃ｺ闕ｷ繝ｫ繝ｼ繝ｫ</h2>
+            <h2 className="font-heading font-bold text-2xl md:text-3xl">出荷ルール</h2>
             <p className="text-sm text-white/75 leading-6 mt-2">
-              蜃ｺ闕ｷ譌･繝ｻ蛟牙ｺｫ繝ｻ遒ｺ隱阪ち繧ｹ繧ｯ繝ｻ菴乗園譬｡豁｣繝ｻ蜃ｺ闕ｷ逋ｻ骭ｲ縺ｮ蛻､譁ｭ蝓ｺ貅悶ｒ縲∬ｨ育ｮ怜ｼ上→蜈ｷ菴謎ｾ九〒遒ｺ隱阪〒縺阪∪縺吶・            </p>
+              出荷日・倉庫・確認タスク・住所校正・出荷登録の判断基準を、計算式と具体例で確認できます。
+            </p>
             <div className="relative mt-5 max-w-xl">
               <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-cream-400" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="萓具ｼ壼､輔・驛ｨ縲：J繝ｭ繧ｸ縲∽ｽ乗園譬｡豁｣縲∵ｱｺ貂医お繝ｩ繝ｼ"
+                placeholder="例：夕の部、FJロジ、住所校正、決済エラー"
                 className="w-full rounded-xl bg-white text-cream-900 placeholder-cream-400 pl-10 pr-4 py-3 text-sm border-0 focus:outline-none focus:ring-2 focus:ring-accent/40 shadow-sm"
               />
             </div>
@@ -600,8 +611,8 @@ export default function ShippingRules({ onNavigate = () => {} }) {
           <aside className="lg:col-span-1">
             <div className="bg-white rounded-2xl border border-cream-200 shadow-sm p-2 lg:sticky lg:top-6">
               <div className="px-3 py-2 flex items-center justify-between">
-                <span className="text-xs font-heading font-bold text-cream-500 uppercase tracking-wider">繧ｫ繝・ざ繝ｪ</span>
-                <span className="text-[10px] text-cream-400">{filteredCategories.length}莉ｶ</span>
+                <span className="text-xs font-heading font-bold text-cream-500 uppercase tracking-wider">カテゴリ</span>
+                <span className="text-[10px] text-cream-400">{filteredCategories.length}件</span>
               </div>
               <nav className="space-y-1">
                 {filteredCategories.map((category) => {
@@ -631,7 +642,7 @@ export default function ShippingRules({ onNavigate = () => {} }) {
               {filteredCategories.length === 0 && (
                 <div className="py-8 px-4 text-center">
                   <Search size={24} className="mx-auto text-cream-300 mb-2" />
-                  <p className="text-xs text-cream-500">隧ｲ蠖薙☆繧九き繝・ざ繝ｪ縺後≠繧翫∪縺帙ｓ</p>
+                  <p className="text-xs text-cream-500">該当するカテゴリがありません</p>
                 </div>
               )}
             </div>
@@ -644,7 +655,7 @@ export default function ShippingRules({ onNavigate = () => {} }) {
               </div>
               <div>
                 <div className="flex items-center gap-2 text-[10px] text-cream-400 uppercase tracking-wider font-heading font-bold">
-                  蜃ｺ闕ｷ繝ｫ繝ｼ繝ｫ <ChevronRight size={12} /> {active.short}
+                  出荷ルール <ChevronRight size={12} /> {active.short}
                 </div>
                 <h2 className="text-xl font-heading font-bold text-cream-900 mt-1">{active.title}</h2>
                 <p className="text-xs text-cream-500 leading-5 mt-1">{active.description}</p>
@@ -655,8 +666,8 @@ export default function ShippingRules({ onNavigate = () => {} }) {
         </div>
 
         <footer className="mt-6 flex items-center justify-between gap-3 text-[11px] text-cream-400">
-          <span className="flex items-center gap-1.5"><Clock3 size={13} /> 迴ｾ陦後・staging螳溯｣・↓蝓ｺ縺･縺上Ν繝ｼ繝ｫ</span>
-          <span>蛻､譁ｭ縺ｫ霑ｷ縺｣縺溷ｴ蜷医・邂｡逅・・∈遒ｺ隱阪＠縺ｦ縺上□縺輔＞</span>
+          <span className="flex items-center gap-1.5"><Clock3 size={13} /> 現行のstaging実装に基づくルール</span>
+          <span>判断に迷った場合は管理者へ確認してください</span>
         </footer>
       </div>
     </div>
