@@ -1,8 +1,8 @@
 import { useAuth } from '../lib/auth';
-import { Package } from 'lucide-react';
+import { Package, AlertTriangle } from 'lucide-react';
 
 export default function Login() {
-  const { loginWithGoogle } = useAuth();
+  const { loginWithGoogle, authError } = useAuth();
 
   return (
     <div className="min-h-screen bg-cream-100 flex items-center justify-center p-4">
@@ -18,6 +18,13 @@ export default function Login() {
           <p className="text-sm font-body text-cream-500 mb-8">
             出荷業務管理システム
           </p>
+
+          {authError && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 text-left">
+              <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm font-body text-red-700">{authError}</p>
+            </div>
+          )}
 
           <button
             onClick={loginWithGoogle}

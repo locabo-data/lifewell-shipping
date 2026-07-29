@@ -15,6 +15,8 @@ import {
   getIrregularCodes, setIrregularCodes, getApiConfig, setApiConfig,
   getAppSettings, setAppSettings,
   getHoldMailTemplates, setHoldMailTemplates,
+  getCancelStates, setCancelStates,
+  getAddressCorrections,
 } from '../lib/firestore-helpers';
 import {
   EcforceAPI, AddressCorrectionService, TaskProcessors,
@@ -54,15 +56,77 @@ class ErrorBoundary extends Component {
 
 // ======================== Constants ========================
 const TASK_LIST = [
-  { id: 'pendingShipment', label: '過去出荷分確認', desc: '未出荷・仮売上の受注', icon: Package, processor: 'pendingShipment' },
-  { id: 'paymentError', label: '決済エラー確認', desc: '決済エラー状態の受注', icon: CreditCard, processor: 'paymentError' },
-  { id: 'npPayment', label: 'NP別送確認', desc: 'NP後払い別送対象の受注', icon: FileText, processor: 'npPayment' },
-  { id: 'nameAnomaly', label: 'テスト注文・氏名不備', desc: '氏名異常検出', icon: User, processor: 'nameAnomaly' },
-  { id: 'duplicate', label: '重複注文確認', desc: '同一氏名/住所の重複', icon: Copy, processor: 'duplicate' },
-  { id: 'singleItem', label: '単品注文確認', desc: '対象商品コード含む受注', icon: ShoppingBag, processor: 'singleItem' },
-  { id: 'purchaseUrl', label: '購入URL確認', desc: 'defo/test URL (初回)', icon: Link, processor: 'purchaseUrl' },
-  { id: 'addressCorrection', label: '住所校正', desc: 'AI住所校正（新規注文のみ）', icon: MapPin, processor: 'addressCorrection' },
-  { id: 'oplux', label: 'O-PLUX審査確認', desc: 'REVIEW / OK判定 (初回)', icon: Shield, processor: 'oplux' },
+  { id: 'pendingShipment', label: '過去出荷分確認', desc: '未出荷・仮売上の受注', icon: Package, processor: 'pendingShipment',
+    help: { title: '過去出荷分確認のルール', rules: [
+      '出荷予定日が本日の1〜15日前の範囲にある受注が対象',
+      '決済状態が「仮売上（authed）」または「与信審査完了（credit_exam_completed）」のみ対象',
+      '未出荷（shipped_at = null）かつ要対応フラグなし（tbc = false）であること',
+      '「当日に変更」ボタンで発送予定日を本日に更新し、通常出荷リストへ追加する',
+    ] },
+  },
+  { id: 'paymentError', label: '決済エラー確認', desc: '決済エラー状態の受注', icon: CreditCard, processor: 'paymentError',
+    help: { title: '決済エラー確認のルール', rules: [
+      '決済状態（payment_state）がエラー系の受注を一覧表示する',
+      '保留処理または顧客への連絡対応を行う',
+      '対応完了後、タスクを完了にする',
+    ] },
+  },
+  { id: 'npPayment', label: 'NP別送確認', desc: 'NP後払い別送対象の受注', icon: FileText, processor: 'npPayment',
+    help: { title: 'NP別送確認のルール', rules: [
+      '支払方法IDが 57 / 24 / 61（NP後払い）の受注が対象',
+      'NP後払いは請求書が別送されるため、必要に応じて顧客への案内を行う',
+      '内容を確認し、問題なければ完了する',
+    ] },
+  },
+  { id: 'nameAnomaly', label: 'テスト注文・氏名不備', desc: '氏名異常検出', icon: User, processor: 'nameAnomaly',
+    help: { title: 'テスト注文・氏名不備のルール', rules: [
+      '初回注文（times ≤ 1）のみ対象',
+      '氏名が「テスト」「test」などの異常パターンに一致する受注を検出',
+      'O-PLUX審査詳細にフリガナ関連の不備コメントが含まれる受注も対象',
+      'テスト注文と判断した場合はキャンセル処理を行う',
+      '氏名ミスの場合は氏名修正ボタンで修正する',
+    ] },
+  },
+  { id: 'duplicate', label: '重複注文確認', desc: '同一氏名/住所の重複', icon: Copy, processor: 'duplicate',
+    help: { title: '重複注文確認のルール', rules: [
+      '同一セッション内で氏名または住所が一致する複数受注を検出',
+      '誤って2回注文した可能性があるため、顧客に確認する',
+      '重複と確定した場合は片方をキャンセルする',
+    ] },
+  },
+  { id: 'singleItem', label: '単品注文確認', desc: '対象商品コード含む受注', icon: ShoppingBag, processor: 'singleItem',
+    help: { title: '単品注文確認のルール', rules: [
+      '設定画面（設定 › イレギュラー商品コード）で登録した商品コードを含む受注が対象',
+      '単品商品は定期コースと出荷フローや倉庫が異なる場合があるため別途確認する',
+      '内容を確認し、問題なければ完了する',
+    ] },
+  },
+  { id: 'purchaseUrl', label: '購入URL確認', desc: 'defo/test URL (初回)', icon: Link, processor: 'purchaseUrl',
+    help: { title: '購入URL確認のルール', rules: [
+      '初回受注（times ≤ 1）のみ対象',
+      '購入URLに「defo」または「test」が含まれる受注を検出',
+      'テスト用URLからの流入は本番出荷不要なケースがある',
+      'テスト注文と判断した場合はキャンセル処理を行う',
+    ] },
+  },
+  { id: 'addressCorrection', label: '住所校正', desc: 'AI住所校正（新規注文のみ）', icon: MapPin, processor: 'addressCorrection',
+    help: { title: '住所校正のルール', rules: [
+      '初回注文（times ≤ 1）のみ対象',
+      'AIが住所を解析し、誤記・不備・表記揺れの修正候補を提示する',
+      'スコア OK: 正常　Review: 要目視確認　NG: 不備大・配送リスク高',
+      '変更ありの受注は自動的にチェックが入る。内容を確認して「ecforceに反映」する',
+      'Review・NGの受注は反映前に必ず目視で内容を確認すること',
+    ] },
+  },
+  { id: 'oplux', label: 'O-PLUX審査確認', desc: 'REVIEW / OK判定 (初回)', icon: Shield, processor: 'oplux',
+    help: { title: 'O-PLUX審査確認のルール', rules: [
+      '初回受注（times ≤ 1）のみ対象',
+      'O-PLUXの審査結果が「REVIEW」または「OK」の受注を一覧表示する',
+      '「NG」判定は別途対応済みのため本タスクの対象外',
+      'REVIEWは審査詳細を確認し、問題があれば保留またはキャンセルを行う',
+      'OKは原則そのまま出荷。詳細に気になる記載があれば個別判断する',
+    ] },
+  },
 ];
 
 // 日本の国民の祝日 (2025-2026)
@@ -214,11 +278,11 @@ function NameEditDialog({ order, onClose, onSave }) {
   );
 }
 
-export default function ShippingAppWrapper({ isEventDemo = false, eventDemoToken = null }) {
-  return <ErrorBoundary><ShippingApp isEventDemo={isEventDemo} eventDemoToken={eventDemoToken} /></ErrorBoundary>;
+export default function ShippingAppWrapper() {
+  return <ErrorBoundary><ShippingApp /></ErrorBoundary>;
 }
 
-function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
+function ShippingApp() {
   const { user, profile, logout } = useAuth();
 
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -260,7 +324,9 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
   const [nameEditDialog, setNameEditDialog] = useState(null); // { order }
   const [cancelConfirmDialog, setCancelConfirmDialog] = useState(null); // { order }
   const [holdDialog, setHoldDialog] = useState(null); // { order, doHold, doSuspendSubs, mailTemplateId }
+  const [helpDialog, setHelpDialog] = useState(null); // { title, rules } — タスクのヘルプ内容
   const [holdMailTemplates, setHoldMailTemplatesState] = useState([]); // [{ id: string, label: string }]
+  const [cancelStates, setCancelStatesState] = useState([]); // [{ value: string, label: string }]
   const [selectedShipIds, setSelectedShipIds] = useState(new Set());
   const [irregSelectedShipIds, setIrregSelectedShipIds] = useState({});
   // shippingRegistered: { [groupKey]: boolean }
@@ -282,24 +348,15 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
   const [addressService, setAddressService] = useState(null);
 
   useEffect(() => {
-    // イベントデモ: Firestore 認証不要でデモ用設定を直接セット
-    if (isEventDemo) {
-      setIsDemo(true);
-      setEcforceApi(new EcforceAPI({ isDemo: true }));
-      setAddressService(new AddressCorrectionService({
-        isDemo: false,
-        ...(eventDemoToken ? { demoToken: eventDemoToken } : {}),
-      }));
-      return;
-    }
-    // 通常: user が確定する前は実行しない（Firestore 認証エラー回避）
+    // user が確定する前は実行しない（Firestore 認証エラー回避）
     if (!user) return;
     async function loadSettings() {
       try {
-        const [h, kw, codes, config, whOverrides, holdTpls] = await Promise.all([
+        const [h, kw, codes, config, whOverrides, holdTpls, cancelSts] = await Promise.all([
           getHolidays(), getOpluxKeywords(), getIrregularCodes(), getApiConfig(),
           getAppSettings('warehouse_overrides'),
           getHoldMailTemplates(),
+          getCancelStates(),
         ]);
         setHolidaysState(h);
         setOpluxKeywordsState(kw);
@@ -307,6 +364,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
         setApiConfigState(config);
         setWarehouseOverrides(whOverrides?.overrides || {});
         setHoldMailTemplatesState(holdTpls);
+        setCancelStatesState(cancelSts);
         const demo = !config?.ecforceBaseUrl;
         setIsDemo(demo);
         setEcforceApi(new EcforceAPI({ isDemo: demo, apiConfig: config }));
@@ -317,7 +375,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
       }
     }
     loadSettings();
-  }, [user, isEventDemo]);
+  }, [user]);
 
   // 過去出荷分タスクを開いたとき自動取得
   useEffect(() => {
@@ -341,19 +399,14 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     const shippingTargetDate = sessionType === 'evening' ? getNextDate(selectedDate) : selectedDate;
     const formattedDate = formatDate(shippingTargetDate);
 
-    // 1. 受注取得（イベントデモ: 固定50件のダミーデータを使用）
+    // 1. 受注取得
     let rawOrders;
     try {
-      if (isEventDemo) {
-        const { getDemoOrders } = await import('../lib/demo-data.js');
-        rawOrders = getDemoOrders();
-      } else {
-        const api = ecforceApi || new EcforceAPI({ isDemo: true });
-        rawOrders = await api.getOrdersByShippingDate(
-          formattedDate,
-          (progress) => setLoadingProgress(progress),
-        );
-      }
+      const api = ecforceApi || new EcforceAPI({ isDemo: true });
+      rawOrders = await api.getOrdersByShippingDate(
+        formattedDate,
+        (progress) => setLoadingProgress(progress),
+      );
     } catch (err) {
       showToast(`受注取得エラー: ${err.message}`, 'error');
       setLoading(false);
@@ -425,6 +478,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     setTaskStatuses(statuses);
     setOrderStatuses({});
     setAddressResults({});
+    setShippingRegistered({});
     setNameEditedIds(new Set());
     setPendingMovedIds(new Set());
 
@@ -454,7 +508,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     setLoading(false);
     setLoadingProgress(null);
     const irregMsg = irregularTotal > 0 ? ` (イレギュラー${irregularTotal}件除外)` : '';
-    showToast(`セッション開始: ${sessionType === 'daytime' ? '昼の部' : '夕の部'} / ${wName(warehouse)} / ${normalOrders.length}件${irregMsg}`, 'success');
+    showToast(`セッション開始: ${sessionType === 'daytime' ? '昼の部' : '夕の部'} / ${warehouse?.name} / ${normalOrders.length}件${irregMsg}`, 'success');
   };
 
   // ---------- 受注個別ステータス ----------
@@ -470,6 +524,19 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
       const current = prev[orderId] || { checked: false, memo: '', status: 'pending' };
       return { ...prev, [orderId]: { ...current, checked: !current.checked } };
     });
+  };
+
+  // ---------- DBのoriginal_addressと現在のshipping_addressが同じか判定 ----------
+  const isSameAddress = (a, b) => {
+    if (!a || !b) return false;
+    const n = (s) => (s ?? '')
+      .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // 全角数字→半角
+      .replace(/[Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // 全角英字→半角
+      .replace(/[\s　\-－ー]/g, ''); // スペース・ハイフン除去
+    return n(a.zip) === n(b.zip)
+      && n(a.city) === n(b.city)
+      && n(a.street) === n(b.street)
+      && n(a.building) === n(b.building);
   };
 
   // ---------- 住所の変更有無判定 ----------
@@ -489,26 +556,55 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
   const runAddressCorrection = async (ordersList) => {
     if (!addressService) return;
     setAddressLoading(true);
-    setAddressProgress({ completed: 0, total: ordersList.length });
     setAddressSelection(new Set());
-    try {
-      const addresses = ordersList.map((o) => o.shipping_address);
-      await addressService.correctAddresses(addresses, {
-        onProgress: ({ completed, total, index, result }) => {
-          setAddressProgress({ completed, total });
-          // 1件ごとに即時反映
-          const orderId = ordersList[index].id;
-          setAddressResults((prev) => ({ ...prev, [orderId]: { ...result, applied: false } }));
-          // 修正ありなら自動選択
-          if (result?.correction && hasAddressChange(ordersList[index], result.correction)) {
-            setAddressSelection((prev) => new Set([...prev, orderId]));
-          }
-        },
-      });
-      showToast('住所校正が完了しました', 'success');
-    } catch (err) {
-      showToast(`住所校正エラー: ${err.message}`, 'error');
+
+    // ① Firestore から既存の校正結果を取得（webhookで事前校正済みのもの）
+    const orderIds = ordersList.map((o) => o.id);
+    const cached = await getAddressCorrections(orderIds);
+
+    // ② キャッシュがある受注は即座にセット、ない受注だけ OpenAI へ
+    const uncachedOrders = [];
+    ordersList.forEach((order) => {
+      const hit = cached[String(order.id)];
+      const addressUnchanged = hit && isSameAddress(hit.original_address, order.shipping_address);
+      if (hit?.corrected_address && !hit.error && addressUnchanged) {
+        const correction = hit.corrected_address;
+        setAddressResults((prev) => ({
+          ...prev,
+          [order.id]: { original: order.shipping_address, correction, applied: false },
+        }));
+        if (hasAddressChange(order, correction)) {
+          setAddressSelection((prev) => new Set([...prev, order.id]));
+        }
+      } else {
+        uncachedOrders.push(order);
+      }
+    });
+
+    // ③ DB にない受注のみ OpenAI で校正（従来通り）
+    if (uncachedOrders.length > 0) {
+      setAddressProgress({ completed: 0, total: uncachedOrders.length });
+      try {
+        await addressService.correctAddresses(uncachedOrders.map((o) => o.shipping_address), {
+          onProgress: ({ completed, total, index, result }) => {
+            setAddressProgress({ completed, total });
+            const orderId = uncachedOrders[index].id;
+            setAddressResults((prev) => ({ ...prev, [orderId]: { ...result, applied: false } }));
+            if (result?.correction && hasAddressChange(uncachedOrders[index], result.correction)) {
+              setAddressSelection((prev) => new Set([...prev, orderId]));
+            }
+          },
+        });
+      } catch (err) {
+        showToast(`住所校正エラー: ${err.message}`, 'error');
+        setAddressLoading(false);
+        setAddressProgress(null);
+        return;
+      }
     }
+
+    const dbCount = ordersList.length - uncachedOrders.length;
+    showToast(`住所校正完了（DB: ${dbCount}件 / AI: ${uncachedOrders.length}件）`, 'success');
     setAddressLoading(false);
     setAddressProgress(null);
   };
@@ -694,6 +790,15 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
 
     const runRecheck = async () => {
       setRecheckLoading(true);
+
+      // 全受注をデフォルト選択済みで初期化（変更があった受注は後で除外）
+      setSelectedShipIds(new Set(orders.map((o) => o.id)));
+      const allIrregIds = {};
+      Object.entries(irregularOrders).forEach(([, group]) => {
+        group.forEach((o) => { allIrregIds[o.id] = true; });
+      });
+      setIrregSelectedShipIds(allIrregIds);
+
       try {
         const api = ecforceApi || new EcforceAPI({ isDemo: true });
         // state フィルタなしで取得（complete→他 への変化も検出）
@@ -847,18 +952,13 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
 
   // ---------- テスト注文キャンセル ----------
   const handleCancelOrder = async (dialog) => {
-    const { order, doOrder, doPayment, doSubs, mailTemplateId } = dialog;
+    const { order, doOrder, cancelState, doPayment, doSubs, mailTemplateId } = dialog;
     setLoading('キャンセル処理中...');
     try {
       const api = ecforceApi || new EcforceAPI({ isDemo: true });
       if (!api.isDemo) {
-        // ① 対応状況 → キャンセル
-        if (doOrder) {
-          await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
-            orders: [{ id: Number(order.id), state: 'canceled' }],
-          });
-        }
-        // ② 決済 → void
+        // ① 決済 → void
+        // ※ voidを実行するとecforceが受注stateを自動的に 'canceled' に変更する（固定値）
         if (doPayment) {
           try {
             await api.proxyRequest('POST', '/api/v2/admin/orders/payment_status/bulk_update.json', {
@@ -869,17 +969,25 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
             console.warn('[handleCancelOrder] void failed (non-fatal):', e.message);
           }
         }
-        // ③ 定期受注 → キャンセル
+        // ② 定期受注 → キャンセル
         if (doSubs && order.subs_order_id) {
           await api.proxyRequest('PUT', '/api/v2/admin/subs_orders/bulk_update.json', {
             check_duplicate_link_numbers: 0,
             subs_orders: [{ id: Number(order.subs_order_id), state: 'canceled' }],
           });
         }
-        // ④ メール・SMS送信
+        // ③ メール・SMS送信
         if (mailTemplateId) {
           await api.proxyRequest('POST', `/api/v2/admin/orders/${order.id}/emails.json`, {
             email_template_id: Number(mailTemplateId),
+          });
+        }
+        // ④ 対応状況を指定の state に上書き
+        // ※ voidの非同期処理（ecforce側）が完了するのを待ってから上書きするため最後に実行
+        if (doOrder && cancelState) {
+          if (doPayment) await new Promise((r) => setTimeout(r, 3000)); // void反映待ち
+          await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
+            orders: [{ id: Number(order.id), state: cancelState }],
           });
         }
       }
@@ -905,10 +1013,21 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
           });
         }
         // ② 要対応フラグをON
+        // ※ tbc は API から直接変更できない派生フラグ。対応状況を一時的に
+        //   ecforce未定義の値（'unknown'）にすることでecforce側の自動付与処理を発火させ、
+        //   10秒待機後に対応状況を元（doHold実行時は'horyuu'）に戻す
         if (doSetTbc) {
+          const revertState = doHold ? 'horyuu' : order.state;
           await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
-            orders: [{ id: Number(order.id), tbc: true }],
+            orders: [{ id: Number(order.id), state: 'unknown' }],
           });
+          setLoading('要対応フラグ設定中... (10秒待機)');
+          await new Promise((r) => setTimeout(r, 10000));
+          if (revertState) {
+            await api.proxyRequest('PUT', '/api/v2/admin/orders/bulk_update.json', {
+              orders: [{ id: Number(order.id), state: revertState }],
+            });
+          }
         }
         // ③ 定期受注 → 停止（suspend）
         if (doSuspendSubs && order.subs_order_id) {
@@ -962,52 +1081,142 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     setLoading(false);
   };
 
-  // ---------- 出荷ステータス変更（ecforce API呼び出し） ----------
+  // ---------- 出荷ステータス変更（ecforce API呼び出し・自動リトライ付き） ----------
   // groupKey: 'regular' | 'fj_logi' | 'tsukamoto' (irregular groups use warehouseId as key)
   const registerShippingGroup = async (orderIds, groupKey) => {
     if (orderIds.length === 0) { showToast('出荷対象がありません', 'error'); return; }
+
+    // 対応状況: 注文確定(state=complete) かつ 決済状況: 与信審査完了 or 仮売上完了 のみに絞る
+    const allSessionOrders = [...orders, ...Object.values(irregularOrders).flat()];
+    const filteredIds = orderIds.filter((id) => {
+      const o = allSessionOrders.find((o) => String(o.id) === String(id));
+      return o && o.state === 'complete' &&
+        (o.payment_state === 'credit_exam_completed' || o.payment_state === 'authed');
+    });
+    const skipped = orderIds.length - filteredIds.length;
+    if (skipped > 0) {
+      showToast(`${skipped}件は条件を満たさないためスキップします（対応状況が注文確定でない、または決済状況が与信審査完了/仮売上完了でない）`, 'info');
+    }
+    if (filteredIds.length === 0) { showToast('出荷ステータス変更対象がありません', 'error'); return; }
+
     // 倉庫に応じた shipment_state を決定
-    // tsukamoto (COOOLa / 平日) → cooolawait
-    // fj_logi   (コマロボ / 土日祝) → wmswait
     const warehouseId = groupKey === 'regular' ? session?.warehouse?.id : groupKey;
     const shipmentState = warehouseId === 'tsukamoto' ? 'cooolawait' : 'wmswait';
-    console.log(`[registerShippingGroup] groupKey=${groupKey} warehouseId=${warehouseId} shipmentState=${shipmentState}`);
-    console.log(`[registerShippingGroup] orderIds=`, orderIds);
 
-    setLoading('出荷ステータス変更中...');
-    try {
-      const api = ecforceApi || new EcforceAPI({ isDemo: true });
-      console.log(`[registerShippingGroup] isDemo=${api.isDemo}`);
-      const result = await api.registerShipping(orderIds, shipmentState);
-      // ecforce bulk_update レスポンスから処理件数を取得（orders 配列の長さ）
-      const processedCount = result?.orders?.length ?? orderIds.length;
-      showToast(`${processedCount}件の出荷ステータスを変更しました`, 'success');
-      await completeShipRegister(groupKey, orderIds.length, processedCount);
-    } catch (err) {
-      showToast(`出荷ステータス変更エラー: ${err.message}`, 'error');
+    const MAX_RETRIES = 2;
+    const api = ecforceApi || new EcforceAPI({ isDemo: true });
+    let remainingIds = [...filteredIds];
+    let totalProcessed = 0;
+    let retries = 0;
+
+    // running 状態でセット
+    setShippingRegistered((prev) => ({
+      ...prev,
+      [groupKey]: { status: 'running', submitted: filteredIds.length, processed: 0, failedIds: [], retries: 0 },
+    }));
+    setLoading(`出荷ステータス変更中... ${filteredIds.length}件`);
+
+    while (remainingIds.length > 0) {
+      try {
+        if (retries > 0) {
+          setLoading(`再試行中... ${remainingIds.length}件（${retries}/${MAX_RETRIES}回目）`);
+          await new Promise((r) => setTimeout(r, 3000 * retries));
+        }
+
+        const result = await api.registerShipping(remainingIds, shipmentState);
+        const successIds = new Set((result?.orders ?? []).map((o) => Number(o.id)));
+        // orders が空配列の場合（APIが件数を返さない場合）は全件成功扱い
+        const processedCount = successIds.size > 0 ? successIds.size : remainingIds.length;
+        totalProcessed += processedCount;
+
+        const failedIds = successIds.size > 0
+          ? remainingIds.filter((id) => !successIds.has(Number(id)))
+          : [];
+
+        remainingIds = failedIds;
+
+        setShippingRegistered((prev) => ({
+          ...prev,
+          [groupKey]: {
+            status: remainingIds.length === 0 ? 'completed' : 'running',
+            submitted: filteredIds.length,
+            processed: totalProcessed,
+            failedIds: remainingIds,
+            retries,
+          },
+        }));
+
+        if (remainingIds.length === 0) break;
+
+        // 失敗あり: リトライ上限チェック
+        if (retries >= MAX_RETRIES) {
+          setShippingRegistered((prev) => ({
+            ...prev,
+            [groupKey]: { status: 'failed', submitted: filteredIds.length, processed: totalProcessed, failedIds: remainingIds, retries },
+          }));
+          showToast(`${remainingIds.length}件がリトライ後も失敗しました`, 'error');
+          await completeShipRegister(groupKey, filteredIds.length, totalProcessed, remainingIds);
+          setLoading(false);
+          return;
+        }
+        retries++;
+
+      } catch (err) {
+        // API例外（ネットワーク等）もリトライ対象
+        if (retries >= MAX_RETRIES) {
+          setShippingRegistered((prev) => ({
+            ...prev,
+            [groupKey]: { status: 'failed', submitted: filteredIds.length, processed: totalProcessed, failedIds: remainingIds, retries },
+          }));
+          showToast(`出荷ステータス変更エラー: ${err.message}`, 'error');
+          await completeShipRegister(groupKey, filteredIds.length, totalProcessed, remainingIds);
+          setLoading(false);
+          return;
+        }
+        retries++;
+      }
     }
+
+    // 全件成功
+    const suffix = retries > 0 ? `（${retries}回リトライ後に完了）` : '';
+    showToast(`${totalProcessed}件の出荷ステータスを変更しました${suffix}`, 'success');
+    await completeShipRegister(groupKey, filteredIds.length, totalProcessed, []);
     setLoading(false);
   };
 
-  const completeShipRegister = async (groupKey, submitted = 0, processed = 0) => {
+  const completeShipRegister = async (groupKey, submitted = 0, processed = 0, failedIds = []) => {
     setShippingRegistered((prev) => {
-      const info = { submitted, processed };
+      const info = { status: failedIds.length === 0 ? 'completed' : 'failed', submitted, processed, failedIds };
       const next = { ...prev, [groupKey]: info };
-      // 全グループ（regular + 全 irregularOrders キー）が完了したかチェック
-      const allKeys = ['regular', ...Object.keys(irregularOrders)];
-      const allDone = allKeys.every((k) => next[k]);
-      if (allDone) {
+      // 全グループ（regular + 受注が1件以上の irregularOrders キー）が完了したかチェック
+      // completed / failed どちらも「処理済み」とみなす
+      const allKeys = ['regular', ...Object.keys(irregularOrders).filter((k) => irregularOrders[k]?.length > 0)];
+      const allDone = allKeys.every((k) => next[k]?.status === 'completed' || next[k]?.status === 'failed');
+      const allSucceeded = allKeys.every((k) => next[k]?.status === 'completed');
+      if (allDone && allSucceeded) {
         setSession((s) => s ? { ...s, status: 'completed' } : s);
-        if (sessionLogId) {
-          updateSessionLog(sessionLogId, { status: 'completed', taskStatuses, orderStatuses }).catch(() => {});
-        }
       }
       return next;
     });
   };
 
+  // ---------- 出荷ステータス変更を再実行可能な状態に戻す ----------
+  const resetShippingGroup = (groupKey) => {
+    setShippingRegistered((prev) => {
+      const next = { ...prev };
+      delete next[groupKey];
+      return next;
+    });
+    // 全完了扱いを解除（ホームに戻るボタンを一時的に非表示にする）
+    setSession((s) => s?.status === 'completed' ? { ...s, status: 'tasks_completed' } : s);
+  };
+
   // ---------- セッション終了（リセット） ----------
   const endSession = () => {
+    // ホームに戻るボタン押下時 = 正常完了 → Firestore にタスク完了を記録
+    if (session?.status === 'completed' && sessionLogId) {
+      updateSessionLog(sessionLogId, { status: 'completed', taskStatuses, orderStatuses }).catch(() => {});
+    }
     setSession(null);
     setOrders([]);
     setIrregularOrders({});
@@ -1016,6 +1225,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     setOrderStatuses({});
     setAddressResults({});
     setShipmentStatuses({});
+    setShippingRegistered({});
     setSelectedTask(null);
     setCurrentPage('dashboard');
   };
@@ -1050,19 +1260,11 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
             ${isSelected ? 'bg-accent text-white ring-2 ring-accent/30' : ''} ${isToday && !isSelected ? 'ring-2 ring-cream-400' : ''}
             ${!isSelected ? 'hover:bg-cream-200' : ''} ${holiday || isWeekend ? 'text-red-600' : 'text-cream-900'}`}>
           <span className="block">{d}</span>
-          <span className={`block text-[9px] leading-tight mt-0.5 ${isSelected ? 'text-white/80' : 'text-cream-500'}`}>{isEventDemo ? (wh.id === 'fj_logi' ? 'A' : 'B') : (wh.id === 'fj_logi' ? 'FJ' : '塚本')}</span>
+          <span className={`block text-[9px] leading-tight mt-0.5 ${isSelected ? 'text-white/80' : 'text-cream-500'}`}>{wh.id === 'fj_logi' ? 'FJ' : '塚本'}</span>
         </button>
       );
     }
     return days;
-  };
-
-  // ======================== デモ用ヘルパー ========================
-  // isEventDemo のとき倉庫名をA/Bに置換
-  const wName = (wh) => {
-    if (!isEventDemo) return wh?.name || '';
-    const id = typeof wh === 'string' ? wh : wh?.id;
-    return id === 'fj_logi' ? 'A倉庫' : 'B倉庫';
   };
 
   // ======================== Sidebar ========================
@@ -1075,9 +1277,9 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
       <nav className="flex-1 p-3 space-y-1">
         {[
           { id: 'dashboard', label: 'ダッシュボード', icon: Package },
-          ...(!isEventDemo ? [{ id: 'history', label: 'セッション履歴', icon: History }] : []),
+          { id: 'history', label: 'セッション履歴', icon: History },
           { id: 'rules', label: '出荷ルール', icon: FileText },
-          ...(profile?.role === 'admin' && !isEventDemo ? [
+          ...(profile?.role === 'admin' ? [
             { id: 'warehouse', label: '倉庫カレンダー', icon: Calendar },
             { id: 'settings', label: '設定', icon: Settings },
             { id: 'users', label: 'ユーザー管理', icon: Users },
@@ -1118,7 +1320,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
             <div className="flex items-center gap-3 text-sm font-body text-cream-600">
               <Clock size={16} />
               {session.type === 'daytime' ? '昼の部 (12:30締切)' : '夕の部 (16:00締切)'}
-              <span className="text-cream-400">|</span>{wName(session.warehouse)}
+              <span className="text-cream-400">|</span>{session.warehouse?.name}
               <span className="text-cream-400">|</span>{session.staffName}
               {session.status === 'tasks_completed' && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-heading">
@@ -1149,7 +1351,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
               <span className="text-cream-300">|</span>
               <div className="flex items-center gap-2 text-sm font-body text-cream-700">
                 <Warehouse size={15} className="text-cream-400" />
-                {wName(session.warehouse)}
+                {session.warehouse?.name}
               </div>
               <span className="text-cream-300">|</span>
               <div className="text-sm font-body text-cream-500">{session.staffName}</div>
@@ -1210,6 +1412,12 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                           )}
                         </div>
                         {/* Right indicator */}
+                        {task.help && (
+                          <button onClick={(e) => { e.stopPropagation(); setHelpDialog(task.help); }}
+                            className="p-1.5 rounded-full text-cream-400 hover:text-accent hover:bg-cream-100 transition-colors shrink-0" title="ルールを確認">
+                            <Info size={15} />
+                          </button>
+                        )}
                         {status === 'completed' && <span className="text-xs text-green-600 font-semibold shrink-0">完了</span>}
                         {status === 'skipped' && <span className="text-xs text-cream-400 shrink-0">スキップ</span>}
                       </div>
@@ -1323,14 +1531,17 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                         <div className="p-2.5 bg-green-100 rounded-lg text-green-600"><ClipboardCheck size={22} /></div>
                         <div>
                           <h3 className="font-heading font-bold text-base text-green-800">通常受注 — 出荷ステータス変更</h3>
-                          <p className="text-xs font-body text-green-600 mt-0.5">{wName(session.warehouse)} / {orders.length}件</p>
+                          <p className="text-xs font-body text-green-600 mt-0.5">{session.warehouse?.name} / {orders.length}件</p>
                         </div>
                       </div>
-                      {shippingRegistered.regular && (
-                        <span className="flex items-center gap-1.5 text-green-600 text-sm font-heading font-bold"><CheckCircle2 size={16} /> 登録済み</span>
-                      )}
+                      {shippingRegistered.regular && (() => {
+                        const s = shippingRegistered.regular.status;
+                        if (s === 'running') return <span className="flex items-center gap-1.5 text-blue-600 text-sm font-heading font-bold"><RefreshCw size={16} className="animate-spin" /> 処理中...</span>;
+                        if (s === 'completed') return <span className="flex items-center gap-1.5 text-green-600 text-sm font-heading font-bold"><CheckCircle2 size={16} /> 登録済み</span>;
+                        if (s === 'failed') return <span className="flex items-center gap-1.5 text-red-600 text-sm font-heading font-bold"><AlertTriangle size={16} /> 一部失敗</span>;
+                      })()}
                     </div>
-                    {!shippingRegistered.regular && (
+                    {(!shippingRegistered.regular || shippingRegistered.regular.status === 'running') && (
                       <>
                         <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
                           <table className="w-full">
@@ -1421,28 +1632,51 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                         </div>
                       </>
                     )}
-                    {shippingRegistered.regular && (() => {
-                      const info = shippingRegistered.regular;
-                      const diff = (info.submitted ?? 0) - (info.processed ?? 0);
+                    {shippingRegistered.regular?.status === 'completed' && (() => {
+                      const { processed, submitted, retries } = shippingRegistered.regular;
+                      return (
+                        <div className="px-5 py-4 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-green-700">
+                              <CheckCircle2 size={18} className="shrink-0" />
+                              <span className="text-sm font-heading font-bold">出荷ステータス変更 完了</span>
+                            </div>
+                            <button onClick={() => resetShippingGroup('regular')}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-body text-cream-600 border border-cream-200 rounded-lg hover:bg-cream-100 transition-colors">
+                              <RotateCcw size={12} /> 再実行
+                            </button>
+                          </div>
+                          <p className="pl-7 text-xs font-body text-cream-600">
+                            {processed}件完了 / 母数 {submitted}件
+                            {retries > 0 && <span className="ml-2 text-blue-600">（{retries}回リトライ後に全件成功）</span>}
+                          </p>
+                        </div>
+                      );
+                    })()}
+                    {shippingRegistered.regular?.status === 'failed' && (() => {
+                      const { processed, submitted, failedIds, retries } = shippingRegistered.regular;
                       return (
                         <div className="px-5 py-4 space-y-2">
-                          <div className="flex items-center gap-3">
-                            <CheckCircle2 size={18} className="text-green-600 shrink-0" />
-                            <span className="text-sm font-heading font-bold text-green-800">出荷ステータス変更 完了</span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-red-600">
+                              <AlertTriangle size={18} className="shrink-0" />
+                              <span className="text-sm font-heading font-bold">一部失敗（リトライ{retries}回）</span>
+                            </div>
+                            <button onClick={() => resetShippingGroup('regular')}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-body text-cream-600 border border-cream-200 rounded-lg hover:bg-cream-100 transition-colors">
+                              <RotateCcw size={12} /> 再実行
+                            </button>
                           </div>
-                          <div className="flex items-center gap-4 pl-7 text-xs font-body">
-                            <span className="text-cream-600">
-                              処理完了: <span className="font-semibold text-green-700">{info.processed}件</span>
-                              <span className="mx-1 text-cream-400">/</span>
-                              母数: <span className="font-semibold">{info.submitted}件</span>
-                            </span>
-                            {diff > 0 ? (
-                              <span className="flex items-center gap-1 text-amber-600 font-semibold">
-                                <AlertTriangle size={12} /> 差分: {diff}件 未処理
-                              </span>
-                            ) : (
-                              <span className="text-green-600">✓ 差分なし</span>
-                            )}
+                          <p className="pl-7 text-xs font-body text-cream-600">
+                            成功: {processed}件 / 失敗: {failedIds.length}件 / 母数 {submitted}件
+                          </p>
+                          <div className="pl-7">
+                            <p className="text-xs font-body text-red-600 font-semibold mb-1">失敗した受注ID（手動対応が必要）:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {failedIds.map((id) => (
+                                <span key={id} className="px-2 py-0.5 bg-red-50 border border-red-200 rounded text-xs font-mono text-red-700">{id}</span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1455,9 +1689,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
               {Object.entries(irregularOrders).map(([warehouseId, groupOrders]) => {
                 if (!groupOrders || groupOrders.length === 0) return null;
                 const ecBase = apiConfig?.ecforceBaseUrl?.replace(/\/api.*$/, '') || '';
-                const warehouseLabel = isEventDemo
-                  ? (warehouseId === 'tsukamoto' ? 'B倉庫' : 'A倉庫')
-                  : (warehouseId === 'tsukamoto' ? '塚本郵便逓送 (COOOLa)' : 'FJロジ (コマロボ)');
+                const warehouseLabel = warehouseId === 'tsukamoto' ? '塚本郵便逓送 (COOOLa)' : 'FJロジ (コマロボ)';
                 const stateLabel = warehouseId === 'tsukamoto' ? 'cooolawait' : 'wmswait';
                 // shippingRelevant な変更のみ amber section に表示（human_state のみ変更は除外）
                 const changedIds = new Set(
@@ -1477,7 +1709,8 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                   const n = { ...prev }; n[id] ? delete n[id] : (n[id] = true); return n;
                 });
                 const selectedIds = allIds.filter((id) => irregSelectedShipIds[id]);
-                const isDone = !!shippingRegistered[warehouseId];
+                const regInfo = shippingRegistered[warehouseId];
+                const isDone = regInfo?.status === 'completed' || regInfo?.status === 'failed';
                 return (
                   <div key={warehouseId} className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
                     <div className="bg-orange-50 px-5 py-4 flex items-center justify-between border-b border-orange-100">
@@ -1492,9 +1725,12 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                           </p>
                         </div>
                       </div>
-                      {isDone && (
-                        <span className="flex items-center gap-1.5 text-green-600 text-sm font-heading font-bold"><CheckCircle2 size={16} /> 登録済み</span>
-                      )}
+                      {regInfo && (() => {
+                        const s = regInfo.status;
+                        if (s === 'running') return <span className="flex items-center gap-1.5 text-blue-600 text-sm font-heading font-bold"><RefreshCw size={16} className="animate-spin" /> 処理中...</span>;
+                        if (s === 'completed') return <span className="flex items-center gap-1.5 text-green-600 text-sm font-heading font-bold"><CheckCircle2 size={16} /> 登録済み</span>;
+                        if (s === 'failed') return <span className="flex items-center gap-1.5 text-red-600 text-sm font-heading font-bold"><AlertTriangle size={16} /> 一部失敗</span>;
+                      })()}
                     </div>
                     {!isDone && (
                       <>
@@ -1593,28 +1829,51 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                         </div>
                       </>
                     )}
-                    {isDone && (() => {
-                      const info = shippingRegistered[warehouseId];
-                      const diff = (info?.submitted ?? 0) - (info?.processed ?? 0);
+                    {regInfo?.status === 'completed' && (() => {
+                      const { processed, submitted, retries } = regInfo;
+                      return (
+                        <div className="px-5 py-4 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-green-700">
+                              <CheckCircle2 size={18} className="shrink-0" />
+                              <span className="text-sm font-heading font-bold">出荷ステータス変更 完了</span>
+                            </div>
+                            <button onClick={() => resetShippingGroup(warehouseId)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-body text-cream-600 border border-cream-200 rounded-lg hover:bg-cream-100 transition-colors">
+                              <RotateCcw size={12} /> 再実行
+                            </button>
+                          </div>
+                          <p className="pl-7 text-xs font-body text-cream-600">
+                            {processed}件完了 / 母数 {submitted}件
+                            {retries > 0 && <span className="ml-2 text-blue-600">（{retries}回リトライ後に全件成功）</span>}
+                          </p>
+                        </div>
+                      );
+                    })()}
+                    {regInfo?.status === 'failed' && (() => {
+                      const { processed, submitted, failedIds, retries } = regInfo;
                       return (
                         <div className="px-5 py-4 space-y-2">
-                          <div className="flex items-center gap-2 text-green-600">
-                            <CheckCircle2 size={18} />
-                            <span className="text-sm font-heading font-bold text-green-800">出荷ステータス変更 完了</span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-red-600">
+                              <AlertTriangle size={18} className="shrink-0" />
+                              <span className="text-sm font-heading font-bold">一部失敗（リトライ{retries}回）</span>
+                            </div>
+                            <button onClick={() => resetShippingGroup(warehouseId)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-body text-cream-600 border border-cream-200 rounded-lg hover:bg-cream-100 transition-colors">
+                              <RotateCcw size={12} /> 再実行
+                            </button>
                           </div>
-                          <div className="flex items-center gap-4 pl-7 text-xs font-body">
-                            <span className="text-cream-600">
-                              処理完了: <span className="font-semibold text-green-700">{info?.processed}件</span>
-                              <span className="mx-1 text-cream-400">/</span>
-                              母数: <span className="font-semibold">{info?.submitted}件</span>
-                            </span>
-                            {diff > 0 ? (
-                              <span className="flex items-center gap-1 text-amber-600 font-semibold">
-                                <AlertTriangle size={12} /> 差分: {diff}件 未処理
-                              </span>
-                            ) : (
-                              <span className="text-green-600">✓ 差分なし</span>
-                            )}
+                          <p className="pl-7 text-xs font-body text-cream-600">
+                            成功: {processed}件 / 失敗: {failedIds.length}件 / 母数 {submitted}件
+                          </p>
+                          <div className="pl-7">
+                            <p className="text-xs font-body text-red-600 font-semibold mb-1">失敗した受注ID（手動対応が必要）:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {failedIds.map((id) => (
+                                <span key={id} className="px-2 py-0.5 bg-red-50 border border-red-200 rounded text-xs font-mono text-red-700">{id}</span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1651,9 +1910,9 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                 <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
                 <div className="mt-4 pt-4 border-t border-cream-100">
                   <p className="text-xs font-body text-cream-600 mb-1">選択日: {formatDate(selectedDate)}</p>
-                  <p className="text-xs font-body text-cream-500">倉庫: {wName(getWarehouse(selectedDate, holidays, warehouseOverrides))}</p>
+                  <p className="text-xs font-body text-cream-500">倉庫: {getWarehouse(selectedDate, holidays, warehouseOverrides)?.name}</p>
                 </div>
-                {!session && (isEventDemo || profile?.role === 'admin' || profile?.role === 'operator') && (
+                {!session && (profile?.role === 'admin' || profile?.role === 'operator') && (
                   <button onClick={() => setShowSessionModal(true)}
                     className="mt-4 w-full bg-accent hover:bg-accent-dark text-white font-heading font-semibold text-sm py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
                     <Plus size={16} /> 新規セッション開始
@@ -1718,6 +1977,12 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                             )}
                           </div>
                           {/* Right indicator */}
+                          {task.help && (
+                            <button onClick={(e) => { e.stopPropagation(); setHelpDialog(task.help); }}
+                              className="p-1.5 rounded-full text-cream-400 hover:text-accent hover:bg-cream-100 transition-colors shrink-0" title="ルールを確認">
+                              <Info size={15} />
+                            </button>
+                          )}
                           {isActive && <ChevronRight size={18} className="text-blue-400 shrink-0" />}
                           {status === 'completed' && <span className="text-xs text-green-600 font-semibold shrink-0">完了</span>}
                           {status === 'skipped' && <span className="text-xs text-cream-400 shrink-0">スキップ</span>}
@@ -2127,12 +2392,17 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                   {errorMsg}
                 </p>
               )}
-              {/* 保留処理ボタン */}
+              {/* 保留処理・キャンセルボタン */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setHoldDialog({ order, taskId: 'paymentError', doHold: true, doSuspendSubs: !!order.subs_order_id, doSetTbc: true, mailTemplateId: '' })}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
                   <Pause size={13} /> 保留処理
+                </button>
+                <button
+                  onClick={() => setCancelConfirmDialog({ order, title: '決済エラー受注をキャンセルしますか？', taskId: 'paymentError', doOrder: true, cancelState: cancelStates[0]?.value || '', doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
+                  <Ban size={13} /> キャンセル
                 </button>
               </div>
             </div>
@@ -2336,7 +2606,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                 <Pause size={13} /> SMS + 保留処理
               </button>
             )}
-            <button onClick={() => setCancelConfirmDialog({ order, title: 'テスト受注をキャンセルしますか？', taskId: 'nameAnomaly', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+            <button onClick={() => setCancelConfirmDialog({ order, title: 'テスト受注をキャンセルしますか？', taskId: 'nameAnomaly', doOrder: true, cancelState: cancelStates[0]?.value || '', doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
               <Ban size={13} /> テスト受注キャンセル
             </button>
@@ -2403,7 +2673,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                     詳細確認 <ExternalLink size={11} />
                   </a>
                   <button
-                    onClick={() => setCancelConfirmDialog({ order, title: '購入URL確認：キャンセルしますか？', taskId: 'purchaseUrl', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                    onClick={() => setCancelConfirmDialog({ order, title: '購入URL確認：キャンセルしますか？', taskId: 'purchaseUrl', doOrder: true, cancelState: cancelStates[0]?.value || '', doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
                     className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
                     <Ban size={11} /> キャンセル
                   </button>
@@ -2459,7 +2729,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                   </td>
                   <td className="px-3 py-3">
                     <button
-                      onClick={() => setCancelConfirmDialog({ order, title: '単品注文をキャンセルしますか？', taskId: 'singleItem', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                      onClick={() => setCancelConfirmDialog({ order, title: '単品注文をキャンセルしますか？', taskId: 'singleItem', doOrder: true, cancelState: cancelStates[0]?.value || '', doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors whitespace-nowrap">
                       <Ban size={13} /> キャンセル
                     </button>
@@ -2580,7 +2850,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                   <span className={`px-2 py-0.5 rounded-full text-xs font-heading font-bold ${isReview ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                     {opluxResult || '-'}
                   </span>
-                  <span className="font-mono text-sm text-accent font-semibold">受注ID: {order.id}</span>
+                  <span className="font-mono text-sm text-accent font-semibold">受注番号: {order.number}</span>
                 </div>
                 <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="text-cream-300 hover:text-accent transition-colors shrink-0">
                   <ExternalLink size={15} />
@@ -2637,7 +2907,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                   <Pause size={13} /> SMS + 保留処理
                 </button>
                 <button
-                  onClick={() => setCancelConfirmDialog({ order, title: 'O-PLUX：キャンセルしますか？', taskId: 'oplux', doOrder: true, doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
+                  onClick={() => setCancelConfirmDialog({ order, title: 'O-PLUX：キャンセルしますか？', taskId: 'oplux', doOrder: true, cancelState: cancelStates[0]?.value || '', doPayment: true, doSubs: !!order.subs_order_id, mailTemplateId: '' })}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-heading font-semibold transition-colors">
                   <Ban size={13} /> キャンセル
                 </button>
@@ -2867,6 +3137,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
     ecforceApi={ecforceApi} setEcforceApi={setEcforceApi}
     setAddressService={setAddressService}
     holdMailTemplates={holdMailTemplates} setHoldMailTemplatesState={setHoldMailTemplatesState}
+    cancelStates={cancelStates} setCancelStatesState={setCancelStatesState}
   />;
 
   // ======================== Session Modal ========================
@@ -2902,8 +3173,8 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
           {/* 便選択に応じてリアルタイム更新 */}
           <div className={`rounded-lg px-3 py-2.5 text-sm font-body border ${modalWarehouse.id === 'fj_logi' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
             <div className="flex items-center justify-between">
-              <span className="font-semibold">{wName(modalWarehouse)}</span>
-              {!isEventDemo && <span className="text-xs opacity-70">{modalWarehouse.systemName}</span>}
+              <span className="font-semibold">{modalWarehouse?.name}</span>
+              <span className="text-xs opacity-70">{modalWarehouse.systemName}</span>
             </div>
             <div className="text-xs mt-0.5 opacity-80">
               発送日: {modalShippingDate}
@@ -3062,12 +3333,31 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
             </p>
             <div className="bg-red-50 rounded-lg px-4 py-3 mb-4 space-y-2">
               <p className="text-xs font-heading font-semibold text-red-700 mb-2">実行する操作を選択：</p>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={cancelConfirmDialog.doOrder}
-                  onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doOrder: !prev.doOrder }))}
-                  className="w-4 h-4 accent-red-600 rounded" />
-                <span className="text-xs font-body text-red-700">対応状況 → キャンセル</span>
-              </label>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={cancelConfirmDialog.doOrder}
+                    onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doOrder: !prev.doOrder }))}
+                    className="w-4 h-4 accent-red-600 rounded" />
+                  <span className="text-xs font-body text-red-700">対応状況を変更</span>
+                </label>
+                {cancelConfirmDialog.doOrder && (
+                  <div className="ml-6">
+                    {cancelStates.length > 0 ? (
+                      <select
+                        value={cancelConfirmDialog.cancelState || ''}
+                        onChange={(e) => setCancelConfirmDialog(prev => ({ ...prev, cancelState: e.target.value }))}
+                        className="w-full text-xs border border-red-200 rounded-lg px-2.5 py-1.5 font-body text-red-800 bg-white focus:outline-none focus:ring-1 focus:ring-red-300">
+                        <option value="">-- 対応状況を選択 --</option>
+                        {cancelStates.map((s) => (
+                          <option key={s.value} value={s.value}>{s.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="text-xs text-red-400 font-body">設定画面でキャンセル対応状況を登録してください</p>
+                    )}
+                  </div>
+                )}
+              </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={cancelConfirmDialog.doPayment}
                   onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doPayment: !prev.doPayment }))}
@@ -3104,7 +3394,7 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
                 戻る
               </button>
               <button onClick={() => handleCancelOrder(cancelConfirmDialog)}
-                disabled={!cancelConfirmDialog.doOrder && !cancelConfirmDialog.doPayment && !cancelConfirmDialog.doSubs && !cancelConfirmDialog.mailTemplateId}
+                disabled={(!cancelConfirmDialog.doOrder && !cancelConfirmDialog.doPayment && !cancelConfirmDialog.doSubs && !cancelConfirmDialog.mailTemplateId) || (cancelConfirmDialog.doOrder && !cancelConfirmDialog.cancelState)}
                 className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg font-heading font-semibold transition-colors">
                 キャンセル実行
               </button>
@@ -3120,6 +3410,32 @@ function ShippingApp({ isEventDemo = false, eventDemoToken = null }) {
           onClose={() => setNameEditDialog(null)}
           onSave={(nameData) => handleUpdateName(nameEditDialog.order, nameData)}
         />
+      )}
+
+      {/* ===== ヘルプダイアログ ===== */}
+      {helpDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn"
+          onClick={() => setHelpDialog(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-100 rounded-lg text-blue-600"><Info size={20} /></div>
+                <h3 className="font-heading font-bold text-base text-cream-900">{helpDialog.title}</h3>
+              </div>
+              <button onClick={() => setHelpDialog(null)}
+                className="p-1 rounded-lg hover:bg-cream-100 text-cream-400"><X size={20} /></button>
+            </div>
+            <ol className="space-y-3">
+              {helpDialog.rules.map((rule, i) => (
+                <li key={i} className="flex gap-3 text-sm font-body text-cream-700">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-xs font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
+                  <span className="leading-relaxed">{rule}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
       )}
     </div>
     </div>
@@ -3137,7 +3453,7 @@ function StatCard({ label, value, sub, color = 'text-cream-900' }) {
 }
 
 // ======================== Settings Page ========================
-function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywordsState, irregularCodes, setIrregularCodesState, apiConfig, setApiConfigState, setIsDemo, showToast, ecforceApi, setEcforceApi, setAddressService, holdMailTemplates, setHoldMailTemplatesState }) {
+function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywordsState, irregularCodes, setIrregularCodesState, apiConfig, setApiConfigState, setIsDemo, showToast, ecforceApi, setEcforceApi, setAddressService, holdMailTemplates, setHoldMailTemplatesState, cancelStates, setCancelStatesState }) {
   const [activeTab, setActiveTab] = useState('holidays');
   const [newHoliday, setNewHoliday] = useState('');
   const [newKeyword, setNewKeyword] = useState('');
@@ -3151,12 +3467,15 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
   const [newTplLabel, setNewTplLabel] = useState('');
   const [newTplId, setNewTplId] = useState('');
   const [newTplTaskIds, setNewTplTaskIds] = useState([]);
+  const [newCancelLabel, setNewCancelLabel] = useState('');
+  const [newCancelValue, setNewCancelValue] = useState('');
 
   const tabs = [
     { id: 'holidays', label: '祝日管理' },
     { id: 'oplux', label: 'O-PLUXキーワード' },
     { id: 'irregular', label: 'イレギュラー商品' },
     { id: 'holdTemplates', label: 'メール・SMS送信' },
+    { id: 'cancelStates', label: 'キャンセル対応状況' },
     { id: 'api', label: 'API設定' },
   ];
 
@@ -3230,6 +3549,25 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
     const updated = (holdMailTemplates || []).filter((t) => t.id !== id);
     await setHoldMailTemplates(updated);
     setHoldMailTemplatesState(updated);
+    setSettingsLoading(false);
+  };
+
+  const saveCancelState = async () => {
+    if (!newCancelLabel.trim() || !newCancelValue.trim()) return;
+    setSettingsLoading(true);
+    const updated = [...(cancelStates || []), { value: newCancelValue.trim(), label: newCancelLabel.trim() }];
+    await setCancelStates(updated);
+    setCancelStatesState(updated);
+    setNewCancelLabel('');
+    setNewCancelValue('');
+    showToast('対応状況を追加しました', 'success');
+    setSettingsLoading(false);
+  };
+  const removeCancelState = async (value) => {
+    setSettingsLoading(true);
+    const updated = (cancelStates || []).filter((s) => s.value !== value);
+    await setCancelStates(updated);
+    setCancelStatesState(updated);
     setSettingsLoading(false);
   };
 
@@ -3442,6 +3780,53 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
                 ))}
                 {(holdMailTemplates || []).length === 0 && (
                   <p className="text-xs font-body text-cream-400 text-center py-4">テンプレートが登録されていません</p>
+                )}
+              </div>
+            </div>
+          )}
+          {activeTab === 'cancelStates' && (
+            <div>
+              <p className="text-xs text-cream-500 mb-4 font-body">キャンセルダイアログで選べる対応状況の選択肢を管理します。ecforce の state 値（例: canceled）と表示ラベルを登録してください。</p>
+              <div className="space-y-2 mb-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newCancelLabel}
+                    onChange={(e) => setNewCancelLabel(e.target.value)}
+                    placeholder="表示名（例: キャンセル）"
+                    className="flex-1 px-3 py-2 rounded-lg border border-cream-300 text-sm font-body text-cream-800 placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  />
+                  <input
+                    type="text"
+                    value={newCancelValue}
+                    onChange={(e) => setNewCancelValue(e.target.value)}
+                    placeholder="state値（例: canceled）"
+                    className="flex-1 px-3 py-2 rounded-lg border border-cream-300 text-sm font-mono text-cream-800 placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  />
+                  <button
+                    onClick={saveCancelState}
+                    disabled={!newCancelLabel.trim() || !newCancelValue.trim() || settingsLoading}
+                    className="px-4 py-2 bg-accent text-white text-sm rounded-lg font-heading font-semibold hover:bg-accent-dark disabled:opacity-40 transition-colors whitespace-nowrap">
+                    追加
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {(cancelStates || []).length === 0 ? (
+                  <p className="text-xs font-body text-cream-400 text-center py-4">対応状況が登録されていません</p>
+                ) : (
+                  (cancelStates || []).map((s) => (
+                    <div key={s.value} className="flex items-center justify-between px-3 py-2.5 bg-cream-50 rounded-lg border border-cream-100">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-body text-cream-800 font-semibold">{s.label}</span>
+                        <span className="text-xs font-mono text-cream-400 bg-cream-100 px-1.5 py-0.5 rounded">{s.value}</span>
+                      </div>
+                      <button onClick={() => removeCancelState(s.value)} disabled={settingsLoading}
+                        className="text-cream-400 hover:text-red-500 transition-colors disabled:opacity-50">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
