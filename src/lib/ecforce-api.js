@@ -55,9 +55,20 @@ export class EcforceAPI {
       console.error(`[ecforce] Error response:`, responseText.substring(0, 500));
       throw new Error(`ecforce API error ${res.status}: ${responseText}`);
     }
+    if (!responseText.trim()) {
+      return { success: true, accepted: true };
+    }
     try {
       return JSON.parse(responseText);
     } catch {
+      if (res.ok) {
+        return {
+          success: true,
+          accepted: true,
+          nonJsonResponse: true,
+          bodyPreview: responseText.substring(0, 200),
+        };
+      }
       console.error(`[ecforce] Invalid JSON response:`, responseText.substring(0, 500));
       throw new Error(`ecforce API: レスポンスのJSON解析に失敗しました`);
     }

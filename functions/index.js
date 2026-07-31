@@ -89,9 +89,40 @@ export const ecforceProxy = onRequest(
       }
 
       const apiRes = await rateLimitedFetch(url, fetchOptions);
-      const data = await apiRes.json();
+      const responseText = await apiRes.text();
+      let data = null;
 
-      res.status(apiRes.status).json(data);
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseErr) {
+          if (!apiRes.ok) {
+            res.status(apiRes.status).json({
+              error: 'ecforce API returned non-JSON error response',
+              body: responseText.substring(0, 1000),
+            });
+            return;
+          }
+
+          // Some ecforce async update endpoints can accept the request but return
+          // an empty or non-JSON body. Keep the successful HTTP status instead of
+          // converting it into a proxy-side 500.
+          res.status(apiRes.status).json({
+            success: true,
+            accepted: true,
+            nonJsonResponse: true,
+            bodyPreview: responseText.substring(0, 200),
+          });
+          return;
+        }
+      }
+
+      if (!apiRes.ok) {
+        res.status(apiRes.status).json(data || { error: 'ecforce API error' });
+        return;
+      }
+
+      res.status(apiRes.status).json(data || { success: true, accepted: true });
     } catch (err) {
       console.error('ecforceProxy error:', err);
       res.status(err.message === 'Unauthorized' ? 401 : 500).json({
