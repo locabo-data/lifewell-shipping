@@ -34,6 +34,22 @@ class ErrorBoundary extends Component {
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
   }
+  componentDidCatch(error, info) {
+    const crash = {
+      message: error?.message || String(error),
+      stack: error?.stack || '',
+      componentStack: info?.componentStack || '',
+      url: window.location.href,
+      userAgent: window.navigator.userAgent,
+      timestamp: new Date().toISOString(),
+    };
+    console.error('[ErrorBoundary] React render crash', crash);
+    try {
+      window.localStorage.setItem('lifewell:lastCrash', JSON.stringify(crash));
+    } catch {
+      // Ignore storage failures; console output still carries the crash detail.
+    }
+  }
   render() {
     if (this.state.hasError) {
       return (
@@ -1214,6 +1230,26 @@ function ShippingApp() {
     setSession((s) => s?.status === 'completed' ? { ...s, status: 'tasks_completed' } : s);
   };
 
+  const renderFailedIdList = (failedIds = []) => {
+    const ids = Array.isArray(failedIds) ? failedIds : [];
+    const visibleIds = ids.slice(0, 80);
+    const hiddenCount = Math.max(0, ids.length - visibleIds.length);
+
+    return (
+      <div className="pl-7">
+        <p className="text-xs font-body text-red-600 font-semibold mb-1">失敗した受注ID（手動対応が必要）:</p>
+        <div className="flex flex-wrap gap-1">
+          {visibleIds.map((id) => (
+            <span key={id} className="px-2 py-0.5 bg-red-50 border border-red-200 rounded text-xs font-mono text-red-700">{id}</span>
+          ))}
+          {hiddenCount > 0 && (
+            <span className="px-2 py-0.5 bg-red-100 border border-red-200 rounded text-xs font-body text-red-700">ほか{hiddenCount}件</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // ---------- セッション終了（リセット） ----------
   const endSession = () => {
     // ホームに戻るボタン押下時 = 正常完了 → Firestore にタスク完了を記録
@@ -1673,14 +1709,7 @@ function ShippingApp() {
                           <p className="pl-7 text-xs font-body text-cream-600">
                             成功: {processed}件 / 失敗: {failedIds.length}件 / 母数 {submitted}件
                           </p>
-                          <div className="pl-7">
-                            <p className="text-xs font-body text-red-600 font-semibold mb-1">失敗した受注ID（手動対応が必要）:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {failedIds.map((id) => (
-                                <span key={id} className="px-2 py-0.5 bg-red-50 border border-red-200 rounded text-xs font-mono text-red-700">{id}</span>
-                              ))}
-                            </div>
-                          </div>
+                          {renderFailedIdList(failedIds)}
                         </div>
                       );
                     })()}
@@ -1870,14 +1899,7 @@ function ShippingApp() {
                           <p className="pl-7 text-xs font-body text-cream-600">
                             成功: {processed}件 / 失敗: {failedIds.length}件 / 母数 {submitted}件
                           </p>
-                          <div className="pl-7">
-                            <p className="text-xs font-body text-red-600 font-semibold mb-1">失敗した受注ID（手動対応が必要）:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {failedIds.map((id) => (
-                                <span key={id} className="px-2 py-0.5 bg-red-50 border border-red-200 rounded text-xs font-mono text-red-700">{id}</span>
-                              ))}
-                            </div>
-                          </div>
+                          {renderFailedIdList(failedIds)}
                         </div>
                       );
                     })()}
@@ -2585,7 +2607,7 @@ function ShippingApp() {
               )}
             </div>
             <div className="flex flex-wrap gap-1 mt-1.5">
-              {result.reasons.map((r, i) => (
+              {(Array.isArray(result.reasons) ? result.reasons : []).map((r, i) => (
                 <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${isTest ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{r}</span>
               ))}
             </div>
