@@ -962,9 +962,11 @@ function ShippingApp() {
         // ※ voidを実行するとecforceが受注stateを自動的に 'canceled' に変更する（固定値）
         if (doPayment) {
           try {
-            await api.proxyRequest('POST', '/api/v2/admin/orders/payment_status/bulk_update.json', {
+            const shouldDecrementSubsOrderTimes = !!order.subs_order_id && !!dialog.decrementSubsOrderTimes;
+            await api.proxyRequest('POST', `/api/v2/admin/orders/${order.id}/payment_status.json`, {
               method: 'void',
-              order_ids: [Number(order.id)],
+              decrement_subs_order_times: shouldDecrementSubsOrderTimes ? 1 : 0,
+              recalculate_subs_order: shouldDecrementSubsOrderTimes && dialog.recalculateSubsOrder ? 1 : 0,
             });
           } catch (e) {
             console.warn('[handleCancelOrder] void failed (non-fatal):', e.message);
@@ -3361,10 +3363,41 @@ function ShippingApp() {
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={cancelConfirmDialog.doPayment}
-                  onChange={() => setCancelConfirmDialog(prev => ({ ...prev, doPayment: !prev.doPayment }))}
+                  onChange={() => setCancelConfirmDialog(prev => {
+                    const doPayment = !prev.doPayment;
+                    return {
+                      ...prev,
+                      doPayment,
+                      ...(!doPayment ? { decrementSubsOrderTimes: false, recalculateSubsOrder: false } : {}),
+                    };
+                  })}
                   className="w-4 h-4 accent-red-600 rounded" />
                 <span className="text-xs font-body text-red-700">決済 → キャンセル（取消処理）</span>
               </label>
+              {cancelConfirmDialog.doPayment && cancelConfirmDialog.order.subs_order_id && (
+                <div className="ml-6 space-y-1.5">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={!!cancelConfirmDialog.decrementSubsOrderTimes}
+                      onChange={() => setCancelConfirmDialog(prev => {
+                        const decrementSubsOrderTimes = !prev.decrementSubsOrderTimes;
+                        return {
+                          ...prev,
+                          decrementSubsOrderTimes,
+                          ...(!decrementSubsOrderTimes ? { recalculateSubsOrder: false } : {}),
+                        };
+                      })}
+                      className="w-4 h-4 accent-red-600 rounded" />
+                    <span className="text-xs font-body text-red-700">定期受注の定期回数を-1する</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={!!cancelConfirmDialog.recalculateSubsOrder}
+                      disabled={!cancelConfirmDialog.decrementSubsOrderTimes}
+                      onChange={() => setCancelConfirmDialog(prev => ({ ...prev, recalculateSubsOrder: !prev.recalculateSubsOrder }))}
+                      className="w-4 h-4 accent-red-600 rounded disabled:opacity-40" />
+                    <span className={`text-xs font-body ${cancelConfirmDialog.decrementSubsOrderTimes ? 'text-red-700' : 'text-red-300'}`}>定期受注を再計算する</span>
+                  </label>
+                </div>
+              )}
               {cancelConfirmDialog.order.subs_order_id && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={cancelConfirmDialog.doSubs}
