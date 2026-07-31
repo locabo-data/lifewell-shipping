@@ -464,11 +464,12 @@ function ShippingApp() {
     setChangedOrders({});
     setRecheckDone(false);
 
-    // タスクプロセッサ実行（通常受注に対して）
+    // タスクプロセッサ実行
+    // 単品注文は別倉庫イレギュラーに分かれた受注も確認対象に含める
     const results = {};
     TASK_LIST.forEach((task) => {
       const processor = TaskProcessors[task.processor];
-      if (task.id === 'singleItem') results[task.id] = processor(normalOrders, irregularCodes);
+      if (task.id === 'singleItem') results[task.id] = processor(filteredOrders, irregularCodes);
       else results[task.id] = processor(normalOrders);
     });
     setTaskResults(results);
