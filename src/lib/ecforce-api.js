@@ -5,6 +5,8 @@
  */
 import { auth, isFirebaseConfigured } from './firebase';
 
+export const DEFAULT_SINGLE_ITEM_CODES = ['EA00', 'WB00', 'SU00'];
+
 // --- ecforce API クライアント ---
 // 本番: Firebase Functions プロキシ経由（Firebase Auth トークンで認証）
 // ローカル: Vite dev server ミドルウェア経由（apiConfig をリクエストに含める）
@@ -950,12 +952,12 @@ export const TaskProcessors = {
       .map((o) => ({ ...o, _dupGroupKey: orderGroupKey[o.id].key, _dupReason: orderGroupKey[o.id].reason }));
   },
 
-  /** タスク9: 単品注文確認 — 特定商品コードを含む受注 (デフォルト: EA00, WB00, SU00) */
+  /** タスク9: 単品注文確認 — 特定商品コードを含む受注 */
   singleItem: (orders, targetCodes = []) => {
     const codeSet = new Set(
       targetCodes.length > 0
-        ? targetCodes.map((c) => (typeof c === 'object' ? c.code : String(c)))
-        : ['EA00', 'WB00', 'SU00'],
+        ? targetCodes.map((c) => (typeof c === 'object' ? c.code : String(c)).trim()).filter(Boolean)
+        : DEFAULT_SINGLE_ITEM_CODES,
     );
     return orders.filter((o) => {
       const items = o.line_items || [];

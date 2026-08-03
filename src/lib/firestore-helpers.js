@@ -138,6 +138,16 @@ export async function setIrregularCodes(codes) {
   await setAppSettings('irregular_codes', { codes });
 }
 
+// --- Single Item Product Codes ---
+export async function getSingleItemCodes() {
+  const settings = await getAppSettings('single_item_codes');
+  return settings?.codes || [];
+}
+
+export async function setSingleItemCodes(codes) {
+  await setAppSettings('single_item_codes', { codes });
+}
+
 // --- API Config ---
 export async function getApiConfig() {
   return await getAppSettings('api_config');

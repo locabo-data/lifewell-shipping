@@ -13,6 +13,7 @@ import {
   createSessionLog, updateSessionLog, getSessionLogs,
   getHolidays, setHolidays, getOpluxKeywords, setOpluxKeywords,
   getIrregularCodes, setIrregularCodes, getApiConfig, setApiConfig,
+  getSingleItemCodes, setSingleItemCodes,
   getAppSettings, setAppSettings,
   getHoldMailTemplates, setHoldMailTemplates,
   getCancelStates, setCancelStates,
@@ -21,6 +22,7 @@ import {
 import {
   EcforceAPI, AddressCorrectionService, TaskProcessors,
   filterTbcFalse, normalizeOrder, classifyByIrregular, judgePersonName,
+  DEFAULT_SINGLE_ITEM_CODES,
 } from '../lib/ecforce-api';
 import AdminPanel from '../pages/AdminPanel';
 import ShippingRules from '../pages/ShippingRules';
@@ -112,7 +114,7 @@ const TASK_LIST = [
   },
   { id: 'singleItem', label: '単品注文確認', desc: '対象商品コード含む受注', icon: ShoppingBag, processor: 'singleItem',
     help: { title: '単品注文確認のルール', rules: [
-      '設定画面（設定 › イレギュラー商品コード）で登録した商品コードを含む受注が対象',
+      '設定画面（設定 › 単品商品）で登録した商品コードを含む受注が対象',
       '単品商品は定期コースと出荷フローや倉庫が異なる場合があるため別途確認する',
       '内容を確認し、問題なければ完了する',
     ] },
@@ -328,6 +330,7 @@ function ShippingApp() {
   const [warehouseOverrides, setWarehouseOverrides] = useState({});
   const [opluxKeywords, setOpluxKeywordsState] = useState([]);
   const [irregularCodes, setIrregularCodesState] = useState([]);
+  const [singleItemCodes, setSingleItemCodesState] = useState([]);
   const [apiConfig, setApiConfigState] = useState(null);
   const [isDemo, setIsDemo] = useState(true);
   const [sessionHistory, setSessionHistory] = useState([]);
@@ -368,8 +371,8 @@ function ShippingApp() {
     if (!user) return;
     async function loadSettings() {
       try {
-        const [h, kw, codes, config, whOverrides, holdTpls, cancelSts] = await Promise.all([
-          getHolidays(), getOpluxKeywords(), getIrregularCodes(), getApiConfig(),
+        const [h, kw, codes, singleCodes, config, whOverrides, holdTpls, cancelSts] = await Promise.all([
+          getHolidays(), getOpluxKeywords(), getIrregularCodes(), getSingleItemCodes(), getApiConfig(),
           getAppSettings('warehouse_overrides'),
           getHoldMailTemplates(),
           getCancelStates(),
@@ -377,6 +380,7 @@ function ShippingApp() {
         setHolidaysState(h);
         setOpluxKeywordsState(kw);
         setIrregularCodesState(codes);
+        setSingleItemCodesState(singleCodes);
         setApiConfigState(config);
         setWarehouseOverrides(whOverrides?.overrides || {});
         setHoldMailTemplatesState(holdTpls);
@@ -485,7 +489,7 @@ function ShippingApp() {
     const results = {};
     TASK_LIST.forEach((task) => {
       const processor = TaskProcessors[task.processor];
-      if (task.id === 'singleItem') results[task.id] = processor(filteredOrders, irregularCodes);
+      if (task.id === 'singleItem') results[task.id] = processor(filteredOrders, singleItemCodes);
       else results[task.id] = processor(normalOrders);
     });
     setTaskResults(results);
@@ -3157,6 +3161,7 @@ function ShippingApp() {
     holidays={holidays} setHolidaysState={setHolidaysState}
     opluxKeywords={opluxKeywords} setOpluxKeywordsState={setOpluxKeywordsState}
     irregularCodes={irregularCodes} setIrregularCodesState={setIrregularCodesState}
+    singleItemCodes={singleItemCodes} setSingleItemCodesState={setSingleItemCodesState}
     apiConfig={apiConfig} setApiConfigState={setApiConfigState}
     setIsDemo={setIsDemo} showToast={showToast}
     ecforceApi={ecforceApi} setEcforceApi={setEcforceApi}
@@ -3509,11 +3514,12 @@ function StatCard({ label, value, sub, color = 'text-cream-900' }) {
 }
 
 // ======================== Settings Page ========================
-function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywordsState, irregularCodes, setIrregularCodesState, apiConfig, setApiConfigState, setIsDemo, showToast, ecforceApi, setEcforceApi, setAddressService, holdMailTemplates, setHoldMailTemplatesState, cancelStates, setCancelStatesState }) {
+function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywordsState, irregularCodes, setIrregularCodesState, singleItemCodes, setSingleItemCodesState, apiConfig, setApiConfigState, setIsDemo, showToast, ecforceApi, setEcforceApi, setAddressService, holdMailTemplates, setHoldMailTemplatesState, cancelStates, setCancelStatesState }) {
   const [activeTab, setActiveTab] = useState('holidays');
   const [newHoliday, setNewHoliday] = useState('');
   const [newKeyword, setNewKeyword] = useState('');
   const [newCode, setNewCode] = useState('');
+  const [newSingleItemCode, setNewSingleItemCode] = useState('');
   const [ecforceBaseUrl, setEcforceBaseUrl] = useState(apiConfig?.ecforceBaseUrl || '');
   const [openaiPromptId, setOpenaiPromptId] = useState(apiConfig?.openaiPromptId || 'pmpt_68c23271a2648190a7271a024b25f451065e59a2da9efda4');
   const [saving, setSaving] = useState(false);
@@ -3530,6 +3536,7 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
     { id: 'holidays', label: '祝日管理' },
     { id: 'oplux', label: 'O-PLUXキーワード' },
     { id: 'irregular', label: 'イレギュラー商品' },
+    { id: 'singleItems', label: '単品商品' },
     { id: 'holdTemplates', label: 'メール・SMS送信' },
     { id: 'cancelStates', label: 'キャンセル対応状況' },
     { id: 'api', label: 'API設定' },
@@ -3585,6 +3592,25 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
     const u = irregularCodes.filter((x) => (typeof x === 'object' ? x.code : x) !== code);
     await setIrregularCodes(u);
     setIrregularCodesState(u);
+    setSettingsLoading(false);
+  };
+
+  const saveSingleItemCode = async () => {
+    if (!newSingleItemCode.trim()) return;
+    setSettingsLoading(true);
+    const code = newSingleItemCode.trim();
+    const u = [...new Set([...(singleItemCodes || []), code])];
+    await setSingleItemCodes(u);
+    setSingleItemCodesState(u);
+    setNewSingleItemCode('');
+    showToast('単品商品コードを追加しました', 'success');
+    setSettingsLoading(false);
+  };
+  const removeSingleItemCode = async (code) => {
+    setSettingsLoading(true);
+    const u = (singleItemCodes || []).filter((x) => x !== code);
+    await setSingleItemCodes(u);
+    setSingleItemCodesState(u);
     setSettingsLoading(false);
   };
 
@@ -3755,6 +3781,40 @@ function SettingsPage({ holidays, setHolidaysState, opluxKeywords, setOpluxKeywo
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+          {activeTab === 'singleItems' && (
+            <div>
+              <p className="text-xs text-cream-500 mb-4 font-body">単品注文確認タスクで検出する商品コードを管理します。未登録の場合は既定値（{DEFAULT_SINGLE_ITEM_CODES.join(', ')}）を使用します。</p>
+              <div className="flex gap-2 mb-4">
+                <input type="text" value={newSingleItemCode} onChange={(e) => setNewSingleItemCode(e.target.value)}
+                  placeholder="商品コード (例: EA00)"
+                  className="flex-1 px-3 py-2 rounded-lg border border-cream-300 text-sm font-body text-cream-800 placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                <button onClick={saveSingleItemCode} disabled={!newSingleItemCode.trim() || settingsLoading}
+                  className="px-4 py-2 bg-accent text-white text-sm rounded-lg font-heading font-semibold hover:bg-accent-dark transition-colors disabled:opacity-50">
+                  追加
+                </button>
+              </div>
+              {(singleItemCodes || []).length === 0 ? (
+                <div className="space-y-2">
+                  {DEFAULT_SINGLE_ITEM_CODES.map((code) => (
+                    <div key={code} className="flex items-center justify-between px-3 py-2.5 bg-blue-50 rounded-lg border border-blue-100">
+                      <span className="text-sm font-mono text-blue-800 font-semibold">{code}</span>
+                      <span className="text-xs text-blue-500 bg-blue-100 px-2 py-0.5 rounded-full">既定値</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {singleItemCodes.map((code) => (
+                    <div key={code} className="flex items-center justify-between px-3 py-2.5 bg-cream-50 rounded-lg border border-cream-100">
+                      <span className="text-sm font-mono text-cream-800 font-semibold">{code}</span>
+                      <button onClick={() => removeSingleItemCode(code)} disabled={settingsLoading}
+                        className="text-cream-400 hover:text-red-500 transition-colors disabled:opacity-50"><Trash2 size={14} /></button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
