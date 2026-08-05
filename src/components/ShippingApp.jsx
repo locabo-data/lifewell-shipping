@@ -1247,6 +1247,11 @@ function ShippingApp() {
     });
   };
 
+  const skipShippingGroup = async (groupKey) => {
+    await completeShipRegister(groupKey, 0, 0, []);
+    showToast('出荷ステータス変更対象がないため完了扱いにしました', 'info');
+  };
+
   // ---------- 出荷ステータス変更を再実行可能な状態に戻す ----------
   const resetShippingGroup = (groupKey) => {
     setShippingRegistered((prev) => {
@@ -1587,10 +1592,18 @@ function ShippingApp() {
                     .filter(([, info]) => info.shippingRelevant !== false)
                     .map(([id]) => Number(id))
                 );
-                const allSelected = allIds.length > 0 && allIds.every((id) => selectedShipIds.has(id));
-                const toggleAll = () => setSelectedShipIds(allSelected ? new Set() : new Set(allIds));
-                const toggleOne = (id) => setSelectedShipIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-                const selectedIds = [...selectedShipIds].filter((id) => allIds.includes(id));
+                const actionableIds = allIds.filter((id) => !changedIds.has(id));
+                const allSelected = actionableIds.length > 0 && actionableIds.every((id) => selectedShipIds.has(id));
+                const toggleAll = () => setSelectedShipIds((prev) => {
+                  const n = new Set(prev);
+                  actionableIds.forEach((id) => { allSelected ? n.delete(id) : n.add(id); });
+                  return n;
+                });
+                const toggleOne = (id) => {
+                  if (changedIds.has(id)) return;
+                  setSelectedShipIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+                };
+                const selectedIds = [...selectedShipIds].filter((id) => actionableIds.includes(id));
                 return (
                   <div className="bg-white rounded-xl border border-green-200 shadow-sm overflow-hidden">
                     <div className="bg-green-50 px-5 py-4 flex items-center justify-between border-b border-green-100">
@@ -1635,12 +1648,13 @@ function ShippingApp() {
                                 </tr>
                               )}
                               {orders.filter((o) => changedIds.has(o.id)).map((order) => {
-                                const checked = selectedShipIds.has(order.id);
+                                const checked = false;
                                 const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
                                 return (
                                   <tr key={order.id} className={`border-t border-amber-200 transition-colors ${checked ? 'bg-amber-100' : 'bg-amber-50'}`}>
                                     <td className="px-3 py-2.5 border-l-4 border-l-amber-400">
-                                      <button onClick={() => toggleOne(order.id)} className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${checked ? 'bg-accent border-accent text-white' : 'border-amber-400 hover:border-amber-500'}`}>
+                                      <button disabled title="作業中に出荷関連ステータスが変更されたため対象外"
+                                        className="w-5 h-5 rounded border-2 flex items-center justify-center border-amber-200 bg-amber-100 opacity-50 cursor-not-allowed">
                                         {checked && <Check size={11} />}
                                       </button>
                                     </td>
@@ -1692,10 +1706,17 @@ function ShippingApp() {
                         </div>
                         <div className="px-5 py-4 bg-cream-50 border-t border-cream-100 flex items-center justify-between">
                           <p className="text-xs font-body text-cream-500">{selectedIds.length}件 選択中</p>
-                          <button onClick={() => registerShippingGroup(selectedIds, 'regular')} disabled={selectedIds.length === 0 || loading}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-heading font-bold transition-colors shadow-md disabled:opacity-50">
-                            <Truck size={18} /> 出荷ステータス変更 ({selectedIds.length}件)
-                          </button>
+                          {actionableIds.length === 0 ? (
+                            <button onClick={() => skipShippingGroup('regular')} disabled={loading}
+                              className="flex items-center gap-2 px-6 py-2.5 bg-cream-600 hover:bg-cream-700 text-white text-sm rounded-lg font-heading font-bold transition-colors shadow-md disabled:opacity-50">
+                              <CheckCircle2 size={18} /> 対象なしとして完了
+                            </button>
+                          ) : (
+                            <button onClick={() => registerShippingGroup(selectedIds, 'regular')} disabled={selectedIds.length === 0 || loading}
+                              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-heading font-bold transition-colors shadow-md disabled:opacity-50">
+                              <Truck size={18} /> 出荷ステータス変更 ({selectedIds.length}件)
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
@@ -1758,17 +1779,19 @@ function ShippingApp() {
                     .map(([id]) => Number(id))
                 );
                 const allIds = groupOrders.map((o) => o.id);
-                const allSelected = allIds.length > 0 && allIds.every((id) => irregSelectedShipIds[id]);
+                const actionableIds = allIds.filter((id) => !changedIds.has(id));
+                const allSelected = actionableIds.length > 0 && actionableIds.every((id) => irregSelectedShipIds[id]);
                 const toggleAll = () => setIrregSelectedShipIds((prev) => {
                   const n = { ...prev };
-                  if (allSelected) { allIds.forEach((id) => delete n[id]); }
-                  else { allIds.forEach((id) => { n[id] = true; }); }
+                  if (allSelected) { actionableIds.forEach((id) => delete n[id]); }
+                  else { actionableIds.forEach((id) => { n[id] = true; }); }
                   return n;
                 });
                 const toggleOne = (id) => setIrregSelectedShipIds((prev) => {
+                  if (changedIds.has(id)) return prev;
                   const n = { ...prev }; n[id] ? delete n[id] : (n[id] = true); return n;
                 });
-                const selectedIds = allIds.filter((id) => irregSelectedShipIds[id]);
+                const selectedIds = actionableIds.filter((id) => irregSelectedShipIds[id]);
                 const regInfo = shippingRegistered[warehouseId];
                 const isDone = regInfo?.status === 'completed' || regInfo?.status === 'failed';
                 return (
@@ -1819,13 +1842,14 @@ function ShippingApp() {
                                 </tr>
                               )}
                               {groupOrders.filter((o) => changedIds.has(o.id)).map((order) => {
-                                const checked = !!irregSelectedShipIds[order.id];
+                                const checked = false;
                                 const adminUrl = ecBase ? `${ecBase}/admin/orders/${order.id}` : '#';
                                 const codes = (order.line_items || []).map((i) => i.product_code).filter(Boolean);
                                 return (
                                   <tr key={order.id} className={`border-t border-amber-200 transition-colors ${checked ? 'bg-amber-100' : 'bg-amber-50'}`}>
                                     <td className="px-3 py-2.5 border-l-4 border-l-amber-400">
-                                      <button onClick={() => toggleOne(order.id)} className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${checked ? 'bg-orange-500 border-orange-500 text-white' : 'border-amber-400 hover:border-amber-500'}`}>
+                                      <button disabled title="作業中に出荷関連ステータスが変更されたため対象外"
+                                        className="w-5 h-5 rounded border-2 flex items-center justify-center border-amber-200 bg-amber-100 opacity-50 cursor-not-allowed">
                                         {checked && <Check size={11} />}
                                       </button>
                                     </td>
@@ -1882,10 +1906,17 @@ function ShippingApp() {
                         </div>
                         <div className="px-5 py-4 bg-cream-50 border-t border-cream-100 flex items-center justify-between">
                           <p className="text-xs font-body text-cream-500">{selectedIds.length}件 選択中</p>
-                          <button onClick={() => registerShippingGroup(selectedIds, warehouseId)} disabled={selectedIds.length === 0 || loading}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-sm rounded-lg font-heading font-bold transition-colors shadow-md disabled:opacity-50">
-                            <Truck size={18} /> 出荷ステータス変更 ({selectedIds.length}件)
-                          </button>
+                          {actionableIds.length === 0 ? (
+                            <button onClick={() => skipShippingGroup(warehouseId)} disabled={loading}
+                              className="flex items-center gap-2 px-6 py-2.5 bg-cream-600 hover:bg-cream-700 text-white text-sm rounded-lg font-heading font-bold transition-colors shadow-md disabled:opacity-50">
+                              <CheckCircle2 size={18} /> 対象なしとして完了
+                            </button>
+                          ) : (
+                            <button onClick={() => registerShippingGroup(selectedIds, warehouseId)} disabled={selectedIds.length === 0 || loading}
+                              className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-sm rounded-lg font-heading font-bold transition-colors shadow-md disabled:opacity-50">
+                              <Truck size={18} /> 出荷ステータス変更 ({selectedIds.length}件)
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
