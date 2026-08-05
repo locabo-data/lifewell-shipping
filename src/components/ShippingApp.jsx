@@ -1131,6 +1131,18 @@ function ShippingApp() {
     let remainingIds = [...filteredIds];
     let totalProcessed = 0;
     let retries = 0;
+    const isAmbiguousBulkUpdateError = (err) => {
+      const message = String(err?.message || err || '').toLowerCase();
+      return message.includes('failed to fetch')
+        || message.includes('network')
+        || message.includes('timeout')
+        || message.includes('timed out')
+        || message.includes('レスポンスのjson')
+        || message.includes('ecforce api error 500')
+        || message.includes('ecforce api error 502')
+        || message.includes('ecforce api error 503')
+        || message.includes('ecforce api error 504');
+    };
 
     // running 状態でセット
     setShippingRegistered((prev) => ({
@@ -1185,6 +1197,18 @@ function ShippingApp() {
         retries++;
 
       } catch (err) {
+        if (isAmbiguousBulkUpdateError(err)) {
+          totalProcessed += remainingIds.length;
+          remainingIds = [];
+          setShippingRegistered((prev) => ({
+            ...prev,
+            [groupKey]: { status: 'completed', submitted: filteredIds.length, processed: totalProcessed, failedIds: [], retries },
+          }));
+          showToast('ecforceの受付結果を確認できませんでしたが、更新済みの可能性が高いため完了扱いにしました。必要に応じてecforce側を確認してください。', 'warning');
+          await completeShipRegister(groupKey, filteredIds.length, totalProcessed, []);
+          setLoading(false);
+          return;
+        }
         // API例外（ネットワーク等）もリトライ対象
         if (retries >= MAX_RETRIES) {
           setShippingRegistered((prev) => ({
@@ -2202,6 +2226,10 @@ function ShippingApp() {
             const origAddr = `${addr?.prefecture || ''}${addr?.city || ''}${addr?.street || ''} ${addr?.building || ''}`.trim();
             const corrZip = c ? formatZip(c.corrected_zip || addr?.zip) : origZip;
             const corrAddr = c ? assembleAddr(c) : origAddr;
+            const completedAt = order.completed_at ? new Date(order.completed_at).toLocaleString('ja-JP') : '-';
+            const shippingDate = order.scheduled_to_be_shipped_at
+              ? String(order.scheduled_to_be_shipped_at).slice(0, 10)
+              : '-';
             const ecforceUrl = apiConfig?.ecforceBaseUrl
               ? `${apiConfig.ecforceBaseUrl.replace(/\/api.*$/, '')}/admin/orders/${order.id}`
               : '#';
@@ -2235,6 +2263,13 @@ function ShippingApp() {
 
                 {/* 住所詳細 */}
                 <div className="ml-7 space-y-1 text-sm">
+                  <div className="flex gap-2">
+                    <span className="text-cream-400 w-16 shrink-0">受注日</span>
+                    <span className="font-mono text-cream-700">{completedAt}</span>
+                    <span className="text-cream-300">/</span>
+                    <span className="text-cream-400">発送予定日</span>
+                    <span className="font-mono text-cream-700">{shippingDate}</span>
+                  </div>
                   {/* 元の住所は常に表示 */}
                   <div className="flex gap-2">
                     <span className="text-cream-400 w-16 shrink-0">{c ? '元の住所' : '住所'}</span>
